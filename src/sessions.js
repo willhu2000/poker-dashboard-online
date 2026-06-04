@@ -19,13 +19,15 @@ const KEY = 'poker-sessions'; // legacy localStorage key (data is migrated into 
 //       blinds) so the hand replayer can draw a poker table.
 //   v7: fix head-to-head — record each player's pot result vs every opponent at
 //       showdown (multiway co-losers were previously skipped).
+//   v8: fix head-to-head symmetry — only record a result when exactly one of
+//       the pair won; co-losers in multiway pots no longer record mutual losses.
 //
 // Sessions that carry a `rawLog` self-heal on load (initSessions re-runs the
 // parser/analyser via migrateRecords), so they NEVER need a manual re-upload
 // again. Only legacy sessions saved without a rawLog can't auto-upgrade — those
 // are what hasOutdatedSessions() flags. (Split fields are still back-filled from
 // stored action logs for them too; see backfillSplitFields.)
-export const STATS_SCHEMA_VERSION = 7;
+export const STATS_SCHEMA_VERSION = 8;
 
 // ── In-memory session cache ───────────────────────────────────────────────────
 // IndexedDB is async, but the rest of the app expects synchronous reads. We keep

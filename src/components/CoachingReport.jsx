@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { classifyHand } from '../parser.js';
 import { bestHand } from '../handEval.js';
+import HandReplayer from './HandReplayer.jsx';
 
 // Coaching report rendered for every player in the Deep Dive. Findings
 // (VPIP/PFR/AF/W$SD/etc.) work for everyone since they're derived from action
@@ -479,9 +480,10 @@ function StepRow({ step }) {
   );
 }
 
-function KeyHandCard({ scored, isMerged, playerName, expanded, onToggle, getLog }) {
+function KeyHandCard({ scored, isMerged, playerName, expanded, onToggle, getLog, onReplay }) {
   const { h, tags } = scored;
   const steps = expanded ? analyzeHandActions(h, playerName, getLog(h)) : [];
+  const log = getLog(h);
 
   return (
     <div className="cr-hand-card">
@@ -511,6 +513,11 @@ function KeyHandCard({ scored, isMerged, playerName, expanded, onToggle, getLog 
             <li key={i} className={`cr-tag cr-tag-${t.kind}`}>{t.text}</li>
           ))}
         </ul>
+        {log.length > 0 && (
+          <button className="replay-btn" style={{ marginTop: 6 }} onClick={e => { e.stopPropagation(); onReplay(h, log); }}>
+            ▶ Replay
+          </button>
+        )}
         {expanded && (
           steps.length > 0 ? (
             <div className="cr-steps-wrap">
@@ -537,6 +544,7 @@ export default function CoachingReport({ player, isMerged = false, isViewer = fa
   const [collapsed, setCollapsed] = useState(false);
   const [expandedKeyHands, setExpandedKeyHands] = useState(false);
   const [expandedHandIdx, setExpandedHandIdx] = useState(null);
+  const [replay, setReplay] = useState(null);
 
   // Action logs are stored in a top-level map keyed by `${sessionId}_${num}`
   // (older single-session data may key by plain hand number, and the oldest
@@ -599,6 +607,7 @@ export default function CoachingReport({ player, isMerged = false, isViewer = fa
 
   return (
     <div className="coaching-report">
+      {replay && <HandReplayer log={replay.log} hand={replay.hand} heroName={replay.heroName} heroCards={replay.heroCards} onClose={() => setReplay(null)} />}
       {Header}
       <p className="cr-subtitle">
         How {isViewer ? 'you' : player.name} played — and what poker theory says about it.
@@ -671,6 +680,7 @@ export default function CoachingReport({ player, isMerged = false, isViewer = fa
               getLog={getLog}
               expanded={expandedHandIdx === i}
               onToggle={() => setExpandedHandIdx(expandedHandIdx === i ? null : i)}
+              onReplay={(h, log) => setReplay({ log, hand: h, heroName: player.name, heroCards: h.c1 && h.c2 ? [h.c1, h.c2] : null })}
             />
           ))}
           {keyHands.length > 3 && (

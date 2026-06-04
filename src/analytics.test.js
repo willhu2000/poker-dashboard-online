@@ -60,18 +60,17 @@ describe('analyseLog — advanced analytics', () => {
 });
 
 describe('analyseLog — multiway head-to-head', () => {
-  it('records a loss vs every co-shown opponent when a third player scoops', () => {
+  it('only records a result between a pair when exactly one of them won', () => {
     const { players } = analyseLog(MULTIWAY_SHOWDOWN);
     const { Alice, Bob, Carol } = players;
-    // Carol won, so she beats both.
+    // Carol won — she records a win vs each co-shown loser; losers record a loss vs Carol.
     expect(Carol.vsOpponents['Alice']).toEqual({ w: 1, l: 0 });
     expect(Carol.vsOpponents['Bob']).toEqual({ w: 1, l: 0 });
-    // Alice and Bob both lost the pot — each records a loss vs BOTH opponents
-    // (the previous bug skipped the co-loser).
-    expect(Alice.vsOpponents['Bob']).toEqual({ w: 0, l: 1 });
     expect(Alice.vsOpponents['Carol']).toEqual({ w: 0, l: 1 });
-    expect(Bob.vsOpponents['Alice']).toEqual({ w: 0, l: 1 });
     expect(Bob.vsOpponents['Carol']).toEqual({ w: 0, l: 1 });
+    // Alice and Bob both lost to Carol — no h2h result between them (neither beat the other).
+    expect(Alice.vsOpponents['Bob']).toBeUndefined();
+    expect(Bob.vsOpponents['Alice']).toBeUndefined();
   });
 });
 
