@@ -12,10 +12,6 @@ import ErrorBoundary from './components/ErrorBoundary.jsx';
 const Dashboard = lazy(() => import('./components/Dashboard.jsx'));
 const TrendsView = lazy(() => import('./components/TrendsView.jsx'));
 
-// Auto-loaded sample logs (placed in /public). Loaded once on first launch
-// when localStorage has no sessions yet.
-const AUTO_LOAD_LOGS = ['/log1.csv', '/log2.csv'];
-
 // The viewer is whichever player downloaded the log — the only person whose
 // hole cards we see on every dealt hand. We persist the pick on each session,
 // but older saves don't have it; fall back to the legacy "will*" heuristic so
@@ -62,31 +58,12 @@ export default function App() {
     setPlayerConfig(newConfig);
   }
 
-  // Load persisted sessions from IndexedDB (self-healing any outdated ones via
-  // their stored rawLog), then — only on a truly empty store — ingest the bundled
-  // sample CSVs. Runs once on mount; the UI waits on `ready`.
+  // Load persisted sessions from IndexedDB. Runs once on mount; the UI waits on `ready`.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         await initSessions();
-        if (loadSessions().length === 0) {
-          for (const url of AUTO_LOAD_LOGS) {
-            const res = await fetch(url);
-            if (!res.ok) continue;
-            const text = await res.text();
-            const hash = hashContent(text);
-            if (isDuplicate(hash)) continue;
-            const rows = parseLog(text);
-            const gameDate = extractGameDate(rows) || new Date();
-            // Bundled samples are Will's — let analyseLog use its built-in
-            // "will*" heuristic by passing no explicit viewerName.
-            const stats = analyseLog(rows);
-            const sessionName = formatSessionName(gameDate);
-            const viewer = Object.keys(stats.players).find(n => n.toLowerCase().startsWith('will')) || null;
-            saveSession(sessionName, stats, gameDate, hash, viewer, text);
-          }
-        }
       } catch (err) {
         console.error('Startup load failed', err);
         if (!cancelled) setError('Failed to load saved sessions: ' + err.message);
