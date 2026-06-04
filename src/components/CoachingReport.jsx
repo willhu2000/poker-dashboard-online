@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { classifyHand } from '../parser.js';
 import { bestHand } from '../handEval.js';
 import { resolveAlias, resolveDisplayName } from '../playerConfig.js';
@@ -835,6 +835,79 @@ function rankKeyHands(p, getLog) {
   return scored.slice(0, 5);
 }
 
+// ─── Hand search ─────────────────────────────────────────────────────────────
+
+const _RANK_ALIAS = { t: '10', T: '10' };
+const normRank = (r) => _RANK_ALIAS[r] ?? r.toUpperCase();
+
+// Parse the user's query into a typed descriptor. Supports:
+//   "#42" / "42"   → hand number lookup
+//   "AA" / "AKs"   → hole-card match (optional s/o suffix for suited/offsuit)
+function parseHandQuery(raw) {
+  const q = raw.trim();
+  if (!q) return null;
+  const numM = q.match(/^#?(\d{1,4})$/);
+  if (numM) return { type: 'num', num: parseInt(numM[1], 10) };
+  const RANK = '(10|[2-9TJQKAtjqka])';
+  const cardM = q.match(new RegExp(`^${RANK}${RANK}(s|o)?$`, 'i'));
+  if (cardM) return { type: 'cards', r1: normRank(cardM[1]), r2: normRank(cardM[2]), suitedness: cardM[3]?.toLowerCase() ?? null };
+  return null;
+}
+
+function matchesHandQuery(h, parsed) {
+  if (!parsed) return false;
+  if (parsed.type === 'num') return h.num === parsed.num;
+  if (parsed.type === 'cards') {
+    if (!h.c1 || !h.c2) return false;
+    const { r1, r2, suitedness } = parsed;
+    const rankMatch = (h.c1.rank === r1 && h.c2.rank === r2) || (h.c1.rank === r2 && h.c2.rank === r1);
+    if (!rankMatch) return false;
+    const suited = h.c1.suit === h.c2.suit;
+    if (suitedness === 's') return suited;
+    if (suitedness === 'o') return !suited;
+    return true;
+  }
+  return false;
+}
+
+// Build coaching tags for any hand (used by search results, which span the
+// full history rather than just the top-ranked key hands).
+function tagsForHand(h, playerName, getLog) {
+  const cat = h.c1 && h.c2 ? categoryFromCards(h.c1, h.c2) : null;
+  const log = getLog(h);
+  const myPreflop = log.filter(e => e.type === 'action' && e.street === 'preflop' && e.player === playerName);
+  const enteredVoluntarily = myPreflop.some(a => ['call', 'raise', 'bet'].includes(a.action));
+  const tags = [];
+
+  if (h.isBadBeat) {
+    tags.push({ kind: 'variance', text: 'Bad beat — you got your money in good. Variance, not a mistake.' });
+  } else if (h.isSuckOut) {
+    tags.push({ kind: 'variance', text: 'Suck-out — you were behind and got there. Good result; don\'t rely on it repeating.' });
+  } else if (h.isSplit) {
+    tags.push({ kind: 'good', text: `Split the pot${h.wonAmount ? ` (+${h.wonAmount.toLocaleString()} chips)` : ''}${h.myHandName ? ` with ${h.myHandName}` : ''}.` });
+  } else if (h.won) {
+    tags.push({ kind: 'good', text: `Won${h.wonAmount ? ` +${h.wonAmount.toLocaleString()} chips` : ''}${h.myHandName ? ` with ${h.myHandName}` : ''}.` });
+  } else if (h.wasShown) {
+    tags.push({ kind: 'leak', text: `Lost at showdown${h.winnerHandName ? ` to ${h.winnerHandName}` : ''}${h.myHandName ? ` (held ${h.myHandName})` : ''}.` });
+  } else if (enteredVoluntarily) {
+    tags.push({ kind: 'neutral', text: 'Folded after entering the pot — either a disciplined laydown or a spot worth reviewing. Check the action below.' });
+  } else {
+    tags.push({ kind: 'neutral', text: 'Folded preflop — no chips invested.' });
+  }
+
+  if (cat && CATEGORY_TRASH.has(cat) && enteredVoluntarily && !h.isBadBeat) {
+    tags.push({ kind: 'leak', text: `Entered preflop with ${cat} — a hand that bleeds chips from most positions.` });
+  }
+  if (h.wasShown && !h.won && (cat === 'Medium Pair (TT-88)' || cat === 'Small Pair (77-55)') && (h.board?.length ?? 0) >= 3) {
+    tags.push({ kind: 'leak', text: 'Middle pair beaten at showdown — when facing multi-street bets with overcards on board, mid-pair rarely holds up.' });
+  }
+  if (!h.c1 || !h.c2) {
+    tags.push({ kind: 'neutral', text: 'Hole cards not recorded for this hand — coaching is limited to the action log.' });
+  }
+
+  return tags;
+}
+
 function cardText(c) {
   if (!c) return '??';
   const suit = { s: '♠', h: '♥', d: '♦', c: '♣' }[c.suit] || '?';
@@ -910,7 +983,7 @@ function KeyHandCard({ scored, isMerged, playerName, expanded, onToggle, getLog,
           ))}
         </ul>
         {log.length > 0 && (
-          <button className="replay-btn" style={{ marginTop: 6 }} onClick={e => { e.stopPropagation(); onReplay(h, log); }}>
+          <button className="replay-btn" style={{ marginTop: 6, alignSelf: 'flex-start' }} onClick={e => { e.stopPropagation(); onReplay(h, log); }}>
             ▶ Replay
           </button>
         )}
@@ -948,6 +1021,16 @@ export default function CoachingReport({
   const [expandedKeyHands, setExpandedKeyHands] = useState(false);
   const [expandedHandIdx, setExpandedHandIdx] = useState(null);
   const [replay, setReplay] = useState(null);
+  const [handSearch, setHandSearch] = useState('');
+  const [expandedSearchIdx, setExpandedSearchIdx] = useState(null);
+
+  const searchResults = useMemo(() => {
+    const q = handSearch.trim();
+    if (!q) return [];
+    const parsed = parseHandQuery(q);
+    if (!parsed) return [];
+    return (player.handsHistory || []).filter(h => matchesHandQuery(h, parsed)).slice(0, 10);
+  }, [handSearch, player.handsHistory]);
 
   const getLog = (h) => handActionLogs[h.sessionId ? `${h.sessionId}_${h.num}` : h.num] ?? h.actionLog ?? [];
 
@@ -1116,6 +1199,46 @@ export default function CoachingReport({
           <p className="cr-empty">No hands with known hole cards yet — {isViewer ? 'play more hands' : 'this player needs to reach showdown'} for a per-hand breakdown.</p>
         </div>
       )}
+
+      {/* Hand search */}
+      <div className="cr-key-hands">
+        <h4 className="cr-col-title">🔍 Search hand history</h4>
+        <p className="cr-empty" style={{ marginBottom: 10 }}>
+          Look up any hand by number or hole cards for a full coaching breakdown.
+        </p>
+        <div className="cr-search-row">
+          <input
+            className="cr-search-input"
+            type="text"
+            placeholder="Hand # (e.g. 42) · hole cards (e.g. AA, AKs, KQ)"
+            value={handSearch}
+            onChange={e => { setHandSearch(e.target.value); setExpandedSearchIdx(null); }}
+          />
+          {handSearch && (
+            <button className="btn btn-ghost cr-search-clear" onClick={() => { setHandSearch(''); setExpandedSearchIdx(null); }}>✕</button>
+          )}
+        </div>
+        {handSearch.trim() && parseHandQuery(handSearch.trim()) === null && (
+          <p className="cr-empty" style={{ marginTop: 8 }}>
+            Unrecognised query — try a hand number like <code>42</code>, or hole cards like <code>AA</code>, <code>AKs</code>, <code>KQ</code>.
+          </p>
+        )}
+        {handSearch.trim() && parseHandQuery(handSearch.trim()) !== null && searchResults.length === 0 && (
+          <p className="cr-empty" style={{ marginTop: 8 }}>No matching hands found.</p>
+        )}
+        {searchResults.map((h, i) => (
+          <KeyHandCard
+            key={`${h.sessionId ?? ''}_${h.num}`}
+            scored={{ h, score: 0, tags: tagsForHand(h, player.name, getLog) }}
+            isMerged={isMerged}
+            playerName={player.name}
+            getLog={getLog}
+            expanded={expandedSearchIdx === i}
+            onToggle={() => setExpandedSearchIdx(expandedSearchIdx === i ? null : i)}
+            onReplay={(hand, log) => setReplay({ log, hand, heroName: player.name, heroCards: hand.c1 && hand.c2 ? [hand.c1, hand.c2] : null })}
+          />
+        ))}
+      </div>
     </div>
   );
 }
