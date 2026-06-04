@@ -15,6 +15,7 @@ export function makeRows(entries) {
 export const GEN_6MAX = generateSession({ players: ['Will', 'Maya', 'Dan', 'Priya', 'Theo', 'Liam'], seed: 7, hands: 20 });
 export const GEN_4MAX = generateSession({ players: ['Will', 'Ben', 'Ana', 'Cyrus'], seed: 3, hands: 20 });
 export const GEN_HEADSUP = generateSession({ players: ['Will', 'Rival'], seed: 11, hands: 20 });
+export const GEN_100HAND = generateSession({ players: ['Will', 'Maya', 'Dan', 'Priya', 'Theo', 'Liam'], seed: 42, hands: 100, startStack: 1000, rebuys: true });
 
 // Hand #1: Alice and Bob split a 20 pot. Hand #2: Alice wins 50 solo.
 export const SPLIT_AND_SOLO = makeRows([

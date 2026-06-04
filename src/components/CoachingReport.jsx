@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { classifyHand } from '../parser.js';
 import { bestHand } from '../handEval.js';
+import { resolveAlias, resolveDisplayName } from '../playerConfig.js';
 import HandReplayer from './HandReplayer.jsx';
 
 // Coaching report rendered for every player in the Deep Dive. Findings
@@ -139,6 +140,72 @@ function buildFindings(p) {
     }
   }
 
+  // ── 3-bet % ──
+  if ((p.threeBetOpp ?? 0) >= 5) {
+    const pct = Math.round(100 * (p.threeBets ?? 0) / p.threeBetOpp);
+    if (pct < 3) {
+      findings.push({
+        kind: 'leak',
+        title: `3-bet ${pct}% — rarely re-raising preflop`,
+        body: `When you face an open raise, you 3-bet only ${pct}% of the time. A 5-10% rate keeps opponents from raising freely. Add re-raises with JJ+/AK for value and suited connectors from position as bluffs — this makes you much tougher to play against.`,
+      });
+    } else if (pct >= 5 && pct <= 12) {
+      findings.push({
+        kind: 'good',
+        title: `3-bet ${pct}% — balanced re-raise frequency`,
+        body: 'You\'re re-raising preflop at a healthy rate — enough to apply pressure with value hands while staying balanced. Hard to exploit.',
+      });
+    } else if (pct > 15) {
+      findings.push({
+        kind: 'leak',
+        title: `3-bet ${pct}% — re-raising too frequently`,
+        body: `3-betting ${pct}% means many of those re-raises are marginal hands. When called, you're often out of position with a thin range. Tighten from EP/MP and keep wider 3-bets reserved for the BTN and SB where you have positional cover.`,
+      });
+    }
+  }
+
+  // ── C-bet % ──
+  if ((p.cbetOpp ?? 0) >= 5) {
+    const pct = Math.round(100 * (p.cbets ?? 0) / p.cbetOpp);
+    if (pct < 35) {
+      findings.push({
+        kind: 'leak',
+        title: `C-bet ${pct}% — missing flop continuation bets`,
+        body: `You only follow up preflop raises with a flop bet ${pct}% of the time. A 50-65% rate is standard — not betting enough signals weakness, lets opponents see free turn cards, and makes your c-bets easier to read when you do fire.`,
+      });
+    } else if (pct >= 50 && pct <= 70) {
+      findings.push({
+        kind: 'good',
+        title: `C-bet ${pct}% — solid flop continuation betting`,
+        body: 'You maintain initiative on most flops where you raised preflop — keeping opponents under pressure and picking up pots when they miss.',
+      });
+    } else if (pct > 80) {
+      findings.push({
+        kind: 'leak',
+        title: `C-bet ${pct}% — auto-betting the flop`,
+        body: `C-betting ${pct}% becomes mechanical and exploitable. Opponents will start floating or raising, knowing you bet regardless of the board. Check back on boards that miss your range (low, connected boards after EP opens) to keep opponents guessing.`,
+      });
+    }
+  }
+
+  // ── WTSD (went to showdown) ──
+  if ((p.sawFlopHands ?? 0) >= 15) {
+    const pct = Math.round(100 * (p.wtsdHands ?? 0) / p.sawFlopHands);
+    if (pct > 38) {
+      findings.push({
+        kind: 'leak',
+        title: `WTSD ${pct}% — calling down too often`,
+        body: `You reach showdown ${pct}% of the time you see a flop. Above ~35% usually means calling multi-street bets with hands that won't win. When an opponent bets the turn and river, they typically have a strong holding — tighten your calling standards on later streets.`,
+      });
+    } else if (pct < 20 && (p.sawFlopHands ?? 0) >= 20) {
+      findings.push({
+        kind: 'leak',
+        title: `WTSD ${pct}% — folding too easily postflop`,
+        body: `Only ${pct}% of your seen flops make it to showdown. This low rate suggests opponents may be bluffing you off good hands with turn and river bets. Evaluate hand strength vs. pot odds before folding to aggression.`,
+      });
+    }
+  }
+
   // ── Trash hand frequency in observed range ──
   const totalKnown = Object.values(p.handCategories || {}).reduce((s, n) => s + n, 0);
   const trashCount = Object.entries(p.handCategories || {})
@@ -187,15 +254,347 @@ function buildFindings(p) {
   return findings;
 }
 
+// Positional coaching — separate from the main findings so they can be
+// shown as a dedicated section and fed into next-session focus independently.
+function buildPositionalFindings(p) {
+  const findings = [];
+  const ps = p.posStats || {};
+  const pct = (v, h) => (h ?? 0) >= 5 ? Math.round(100 * (v ?? 0) / h) : null;
+
+  const epVpip  = pct(ps.EP?.v,  ps.EP?.h);
+  const btnVpip = pct(ps.BTN?.v, ps.BTN?.h);
+  const sbVpip  = pct(ps.SB?.v,  ps.SB?.h);
+
+  if (epVpip !== null && epVpip > 22) {
+    findings.push({
+      kind: 'leak',
+      title: `EP VPIP ${epVpip}% — playing too wide from early position`,
+      body: `From early position you're out of position against most of the table for every street. Stick to your strongest hands (TT+, AK, AQs) and fold the rest. Playing ${epVpip}% from EP creates dominated spots on almost every flop.`,
+    });
+  }
+
+  if (btnVpip !== null && (ps.BTN?.h ?? 0) >= 5) {
+    const epRef = epVpip ?? 0;
+    if (btnVpip < epRef + 12) {
+      findings.push({
+        kind: 'leak',
+        title: `Button underused — VPIP only ${btnVpip}% (${Math.max(0, btnVpip - epRef)}% wider than EP)`,
+        body: `You act last on every postflop street from the button, yet your VPIP is barely wider than from early position. Add suited connectors, small pairs, and suited aces to your BTN opening range — the positional advantage more than compensates for weaker cards.`,
+      });
+    } else if (btnVpip >= epRef + 18) {
+      findings.push({
+        kind: 'good',
+        title: `Button well-utilised — VPIP ${btnVpip}% (${btnVpip - epRef}% wider than EP)`,
+        body: 'You correctly widen up from the button, exploiting your positional advantage.',
+      });
+    }
+  }
+
+  if (sbVpip !== null && sbVpip > 45 && (ps.SB?.h ?? 0) >= 8) {
+    findings.push({
+      kind: 'leak',
+      title: `SB VPIP ${sbVpip}% — completing too often from the small blind`,
+      body: `The small blind is the worst seat — you're out of position postflop and have already committed half the BB. At ${sbVpip}% you're completing with too many marginal hands. Default to folding or 3-betting from the SB; avoid completing with hands that play poorly out of position.`,
+    });
+  }
+
+  return findings;
+}
+
+// Extract this player's stats from each raw session object. Matches by
+// display name with alias fallback so renames and multi-name players resolve.
+function getPerSessionStats(sessions, playerName, playerConfig) {
+  if (!sessions || !sessions.length) return [];
+  const result = [];
+  for (const s of sessions) {
+    let sp = null;
+    for (const [rawName, stats] of Object.entries(s.stats?.players || {})) {
+      const canonical = resolveAlias(rawName, playerConfig);
+      const display   = resolveDisplayName(canonical, playerConfig);
+      if (rawName === playerName || canonical === playerName || display === playerName) {
+        sp = stats;
+        break;
+      }
+    }
+    if (!sp || !sp.handsDealt) continue;
+    const threeBetOpp = sp.threeBetOpp ?? 0;
+    const cbetOpp     = sp.cbetOpp ?? 0;
+    const sawFlop     = sp.sawFlopHands ?? 0;
+    result.push({
+      date:      s.gameDate,
+      fileName:  s.fileName,
+      id:        s.id,
+      handsDealt: sp.handsDealt || 0,
+      vpip:      sp.vpip      ?? null,
+      pfr:       sp.pfr       ?? null,
+      af:        sp.af        ?? null,
+      netChips:  sp.netChips  ?? null,
+      winRate:   sp.winRate   ?? null,
+      threeBetPct: threeBetOpp > 3 ? Math.round(100 * (sp.threeBets ?? 0) / threeBetOpp) : null,
+      cbetPct:     cbetOpp     > 3 ? Math.round(100 * (sp.cbets    ?? 0) / cbetOpp)     : null,
+      wtsdPct:     sawFlop     > 3 ? Math.round(100 * (sp.wtsdHands ?? 0) / sawFlop)    : null,
+    });
+  }
+  result.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+  return result;
+}
+
+// Compare the most-recent session against the prior average and generate
+// coaching observations for notable stat shifts.
+function buildSessionNarratives(sessionStats) {
+  if (!sessionStats || sessionStats.length < 2) return [];
+  const last = sessionStats[sessionStats.length - 1];
+  const prev = sessionStats.slice(0, -1);
+  const narratives = [];
+
+  const avgOf = (key) => {
+    const vals = prev.map(s => s[key]).filter(v => v != null && !Number.isNaN(v));
+    return vals.length ? +(vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1) : null;
+  };
+
+  const enough = last.handsDealt >= 12;
+
+  // VPIP shift
+  if (enough && last.vpip != null) {
+    const avg = avgOf('vpip');
+    if (avg != null) {
+      const diff = +(last.vpip - avg).toFixed(1);
+      if (diff > 8) {
+        narratives.push({
+          kind: 'alert', metric: 'VPIP',
+          title: `Played more hands last session: ${avg}% → ${last.vpip}% VPIP`,
+          body: `You entered ${diff}% more pots than your average across previous sessions. This can signal tilt, boredom, or a read on table weakness — but also just variance. Ask: were those extra hands profitable, or did they put you in tough "second-best" spots?`,
+          focus: `Aim to stay near your ${avg}% baseline. Before calling a preflop raise, make sure you'd also raise this hand yourself.`,
+        });
+      } else if (diff < -8) {
+        narratives.push({
+          kind: 'positive', metric: 'VPIP',
+          title: `Tightened up last session: ${avg}% → ${last.vpip}% VPIP`,
+          body: `You played ${Math.abs(diff)}% fewer hands than your average — a disciplined session. If it was intentional (aggressive table, out-of-position spots), that's quality adjustment. Check whether late-position steal opportunities were also passed up.`,
+          focus: null,
+        });
+      }
+    }
+  }
+
+  // Limping (VPIP-PFR gap)
+  if (enough && last.vpip != null && last.pfr != null) {
+    const lastGap = +(last.vpip - last.pfr).toFixed(1);
+    const prevGaps = prev
+      .filter(s => s.vpip != null && s.pfr != null)
+      .map(s => +(s.vpip - s.pfr).toFixed(1));
+    const avgGap = prevGaps.length
+      ? +(prevGaps.reduce((a, b) => a + b, 0) / prevGaps.length).toFixed(1)
+      : null;
+    if (avgGap != null && lastGap - avgGap > 7) {
+      narratives.push({
+        kind: 'alert', metric: 'Limping',
+        title: `More limping last session: VPIP-PFR gap ${avgGap}% → ${lastGap}%`,
+        body: `The gap between how often you entered a pot and how often you raised grew by ${+(lastGap - avgGap).toFixed(1)}%. That extra gap is limps — entering pots passively. Limping gives up initiative, invites multi-way pots, and makes postflop play harder.`,
+        focus: 'Default to raise-or-fold preflop. If a hand isn\'t worth raising, it\'s rarely worth calling.',
+      });
+    }
+  }
+
+  // AF drop
+  if (enough && last.af != null && last.af !== 99) {
+    const avg = avgOf('af');
+    if (avg != null && avg !== 99) {
+      const diff = +(last.af - avg).toFixed(2);
+      if (diff < -1.2) {
+        narratives.push({
+          kind: 'alert', metric: 'Aggression',
+          title: `Less aggressive postflop last session: AF ${avg} → ${last.af}`,
+          body: `Your aggression factor dropped noticeably. This often means more calling and checking when you should be betting for value or protection. Passive play donates value — when you have a made hand, make your opponents pay to draw.`,
+          focus: 'When you connect with the board, bet. Don\'t let opponents see free cards that could beat you.',
+        });
+      } else if (diff > 1.5) {
+        narratives.push({
+          kind: 'positive', metric: 'Aggression',
+          title: `More aggressive last session: AF ${avg} → ${last.af}`,
+          body: `You applied more pressure postflop. If backed by good hand reading this is a positive shift — just ensure you\'re mixing in some check-calls so you\'re not purely mechanical with your betting.`,
+          focus: null,
+        });
+      }
+    }
+  }
+
+  // C-bet shift
+  if (enough && last.cbetPct != null) {
+    const avg = avgOf('cbetPct');
+    if (avg != null) {
+      const diff = last.cbetPct - avg;
+      if (diff < -20) {
+        narratives.push({
+          kind: 'alert', metric: 'C-bet',
+          title: `C-bet dropped last session: ${avg}% → ${last.cbetPct}%`,
+          body: `You continuation-bet significantly less often. If you were adjusting to opponents who call too much, that's a smart read. But a sharp drop usually means giving up initiative and letting opponents take pots with air after your preflop raises.`,
+          focus: 'Follow up your preflop raises more consistently on flops that fit your range.',
+        });
+      } else if (diff > 20) {
+        narratives.push({
+          kind: 'positive', metric: 'C-bet',
+          title: `C-bet increased last session: ${avg}% → ${last.cbetPct}%`,
+          body: `You followed up preflop raises with more flop bets. More c-betting keeps opponents under pressure — just make sure you\'re picking good boards where your range has an advantage.`,
+          focus: null,
+        });
+      }
+    }
+  }
+
+  // WTSD shift
+  if (enough && last.wtsdPct != null) {
+    const avg = avgOf('wtsdPct');
+    if (avg != null && last.wtsdPct - avg > 12) {
+      narratives.push({
+        kind: 'alert', metric: 'WTSD',
+        title: `Went to showdown more last session: ${avg}% → ${last.wtsdPct}% WTSD`,
+        body: `You reached showdown ${+(last.wtsdPct - avg).toFixed(0)}% more often than usual. This typically means calling more turn and river bets with marginal hands. When opponents fire multiple barrels, they usually have something — be more selective about which hands you take to showdown.`,
+        focus: 'Ask yourself before calling a river bet: "Am I calling because I have a good hand, or because I can\'t let go?"',
+      });
+    }
+  }
+
+  // Net chips result
+  if (enough && last.netChips != null && last.netChips < -400) {
+    narratives.push({
+      kind: 'alert', metric: 'Result',
+      title: `Losing session: ${last.netChips.toLocaleString()} chips`,
+      body: `Losing sessions happen to everyone — the key question is why. Bad beats and coolers are variance; calling down too light, playing too many hands, or missing value are decisions. Look at your key hands to separate the two before drawing conclusions.`,
+      focus: 'After a big loss, review the 2-3 biggest pots you lost. Were they unavoidable, or were there earlier decision points you can improve?',
+    });
+  }
+
+  return narratives;
+}
+
+// Pick the top 3 most actionable coaching items for the next session,
+// prioritising session-specific alerts over chronic overall leaks.
+function buildNextSessionFocus(findings, positionalFindings, sessionNarratives) {
+  const items = [];
+
+  // Session-specific alerts with a concrete action come first
+  for (const n of sessionNarratives) {
+    if (items.length >= 3) break;
+    if (n.kind === 'alert' && n.focus) {
+      items.push({ badge: n.metric, title: n.title, action: n.focus });
+    }
+  }
+
+  // Fill remaining slots with top overall leaks
+  const leaks = [...findings, ...positionalFindings].filter(f => f.kind === 'leak');
+  for (const leak of leaks) {
+    if (items.length >= 3) break;
+    // Use the first sentence of the body as the action
+    const action = leak.body.split('. ')[0].trim() + '.';
+    items.push({ badge: 'Overall', title: leak.title, action });
+  }
+
+  return items.slice(0, 3);
+}
+
+// ─── Sub-components ──────────────────────────────────────────────────────────
+
+function fmtDate(iso) {
+  if (!iso) return '—';
+  const parts = iso.split('-');
+  return parts.length >= 3 ? `${parts[1]}/${parts[2]}` : iso;
+}
+
+function SessionBreakdown({ sessionStats }) {
+  if (!sessionStats || sessionStats.length < 2) return null;
+  const fmtNet = (n) => n == null ? '—' : `${n >= 0 ? '+' : ''}${n.toLocaleString()}`;
+  const netColor = (n) => n == null ? 'var(--muted)' : n >= 0 ? 'var(--win)' : 'var(--lose)';
+
+  return (
+    <div className="cr-session-breakdown">
+      <h4 className="cr-col-title">📅 Session by Session</h4>
+      <p className="cr-empty" style={{ marginBottom: 10 }}>
+        Your stats per session — spot trends and inconsistencies across dates.
+      </p>
+      <div style={{ overflowX: 'auto' }}>
+        <table className="cr-session-table">
+          <thead>
+            <tr>
+              <th>Session</th>
+              <th>Hands</th>
+              <th>VPIP</th>
+              <th>PFR</th>
+              <th>AF</th>
+              <th>3-Bet</th>
+              <th>C-Bet</th>
+              <th>WTSD</th>
+              <th>Net</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sessionStats.map((s, i) => {
+              const isLast = i === sessionStats.length - 1;
+              return (
+                <tr key={s.id || i} className={isLast ? 'cr-session-last' : ''}>
+                  <td className="cr-session-name">
+                    <span title={s.date || ''}>{s.fileName || fmtDate(s.date)}</span>
+                    {isLast && <span className="cr-session-badge">Latest</span>}
+                  </td>
+                  <td>{s.handsDealt}</td>
+                  <td>{s.vpip != null ? `${s.vpip}%` : '—'}</td>
+                  <td>{s.pfr  != null ? `${s.pfr}%`  : '—'}</td>
+                  <td>{s.af   != null ? (s.af === 99 ? '∞' : s.af) : '—'}</td>
+                  <td>{s.threeBetPct != null ? `${s.threeBetPct}%` : '—'}</td>
+                  <td>{s.cbetPct    != null ? `${s.cbetPct}%`     : '—'}</td>
+                  <td>{s.wtsdPct   != null ? `${s.wtsdPct}%`     : '—'}</td>
+                  <td style={{ color: netColor(s.netChips), fontWeight: 600 }}>
+                    {fmtNet(s.netChips)}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function SessionNarratives({ narratives }) {
+  if (!narratives || !narratives.length) return null;
+  return (
+    <div className="cr-session-narratives">
+      <h4 className="cr-col-title" style={{ marginBottom: 8 }}>What changed last session</h4>
+      {narratives.map((n, i) => (
+        <div key={i} className={`cr-session-narrative cr-session-narrative-${n.kind}`}>
+          <div className="cr-sn-title">
+            {n.kind === 'alert' ? '⚠ ' : '✓ '}{n.title}
+          </div>
+          <div className="cr-sn-body">{n.body}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function FocusBox({ items }) {
+  if (!items || !items.length) return null;
+  return (
+    <div className="cr-focus">
+      <h4 className="cr-col-title" style={{ marginBottom: 10 }}>🎯 Focus for your next session</h4>
+      <ol className="cr-focus-list">
+        {items.map((item, i) => (
+          <li key={i} className="cr-focus-item">
+            <span className="cr-focus-num">{i + 1}</span>
+            <div className="cr-focus-content">
+              <div className="cr-focus-badge">{item.badge}</div>
+              <div className="cr-focus-title">{item.title}</div>
+              <div className="cr-focus-action">{item.action}</div>
+            </div>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
 // ─── Per-action analysis (pot odds + hand-strength heuristics) ──────────────
-//
-// Walk a hand's actionLog and reproduce the pot state at the moment of each
-// decision the target player made. PokerNow's log format:
-//   "calls N"     → player's TOTAL chips committed this street is now N
-//   "raises to N" → player's TOTAL chips committed this street is now N
-//   "bets N"      → first wager this street; delta is N
-//   "posts a blind of N" → contributes N
-// So delta for any action = (new total) − (prior contribution this street).
 
 const STREET_LABEL = { preflop: 'Preflop', flop: 'Flop', turn: 'Turn', river: 'River' };
 
@@ -326,7 +725,7 @@ function analyzeHandActions(hand, playerName, log = hand.actionLog) {
   let streetBoard = [];
   let pot = 0;
   let betToMatch = 0;
-  let contrib = {};        // player → chips committed this street
+  let contrib = {};
   let raisesThisStreet = 0;
 
   for (const e of log) {
@@ -363,7 +762,7 @@ function analyzeHandActions(hand, playerName, log = hand.actionLog) {
       betToMatch = e.amount || 0;
       raisesThisStreet++;
     } else {
-      continue; // show / collect
+      continue;
     }
 
     if (isPlayer && ['call', 'fold', 'check', 'bet', 'raise'].includes(e.action)) {
@@ -385,9 +784,6 @@ function analyzeHandActions(hand, playerName, log = hand.actionLog) {
   return steps;
 }
 
-// Score each hand by impact and tag it with a coaching annotation. Only hands
-// where we know the player's hole cards (c1/c2 set) are eligible — for the
-// viewer that's every hand, for others it's showdowns only.
 function rankKeyHands(p, getLog) {
   const hh = p.handsHistory || [];
   const scored = [];
@@ -540,28 +936,36 @@ function KeyHandCard({ scored, isMerged, playerName, expanded, onToggle, getLog,
   );
 }
 
-export default function CoachingReport({ player, isMerged = false, isViewer = false, handActionLogs = {} }) {
+export default function CoachingReport({
+  player,
+  isMerged = false,
+  isViewer = false,
+  handActionLogs = {},
+  sessions = [],
+  playerConfig = null,
+}) {
   const [collapsed, setCollapsed] = useState(false);
   const [expandedKeyHands, setExpandedKeyHands] = useState(false);
   const [expandedHandIdx, setExpandedHandIdx] = useState(null);
   const [replay, setReplay] = useState(null);
 
-  // Action logs are stored in a top-level map keyed by `${sessionId}_${num}`
-  // (older single-session data may key by plain hand number, and the oldest
-  // inline-stored logs are read from the hand itself). Mirror PlayerDetail's
-  // lookup so the per-hand breakdowns resolve.
   const getLog = (h) => handActionLogs[h.sessionId ? `${h.sessionId}_${h.num}` : h.num] ?? h.actionLog ?? [];
 
-  const archetype = styleArchetype(player);
-  const findings = buildFindings(player);
-  const keyHands = rankKeyHands(player, getLog);
-  const wins = findings.filter(f => f.kind === 'good');
-  const leaks = findings.filter(f => f.kind === 'leak');
-  const variance = findings.filter(f => f.kind === 'variance');
+  const perSessionStats    = getPerSessionStats(sessions, player.name, playerConfig);
+  const hasSessionData     = perSessionStats.length >= 2;
+  const archetype          = styleArchetype(player);
+  const findings           = buildFindings(player);
+  const positionalFindings = buildPositionalFindings(player);
+  const sessionNarratives  = buildSessionNarratives(perSessionStats);
+  const focusItems         = buildNextSessionFocus(findings, positionalFindings, sessionNarratives);
 
+  const wins     = findings.filter(f => f.kind === 'good');
+  const posWins  = positionalFindings.filter(f => f.kind === 'good');
+  const leaks    = [...findings, ...positionalFindings].filter(f => f.kind === 'leak');
+  const variance = findings.filter(f => f.kind === 'variance');
+  const keyHands = rankKeyHands(player, getLog);
   const hasAnyKnownCards = keyHands.length > 0;
 
-  // Header is always visible so the user can re-open after collapsing.
   const Header = (
     <div className="cr-header">
       <div className="section-title" style={{ fontSize: '0.9rem', margin: 0 }}>
@@ -599,8 +1003,6 @@ export default function CoachingReport({ player, isMerged = false, isViewer = fa
 
   const visibleKeyHands = expandedKeyHands ? keyHands : keyHands.slice(0, 3);
 
-  // Scope blurb: viewer sees every hand they were dealt, others only their
-  // showdowns — make that explicit so the report's gaps make sense.
   const scopeBlurb = isViewer
     ? 'Every hand dealt to this player is in the dataset, so preflop entry decisions are graded too.'
     : 'Action-by-action breakdowns are only available for hands this player took to showdown — preflop folds don\'t reveal cards.';
@@ -614,20 +1016,25 @@ export default function CoachingReport({ player, isMerged = false, isViewer = fa
         {isMerged && <> Numbers are aggregated across the selected sessions.</>} {scopeBlurb}
       </p>
 
+      {/* Style archetype */}
       <div className="cr-archetype">
         <div className="cr-archetype-label">{isViewer ? 'Your style' : 'Their style'}</div>
         <div className="cr-archetype-name">{archetype.name}</div>
         <div className="cr-archetype-body">{archetype.body}</div>
       </div>
 
+      {/* Next session focus — shown when there's something specific to work on */}
+      {focusItems.length > 0 && <FocusBox items={focusItems} />}
+
+      {/* Strengths / leaks grid */}
       <div className="cr-findings-grid">
         <div className="cr-findings-col">
           <h4 className="cr-col-title cr-col-good">✓ What {isViewer ? 'you did' : 'they did'} well</h4>
-          {wins.length === 0 ? (
+          {wins.length + posWins.length === 0 ? (
             <p className="cr-empty">No clear strengths jumped out yet. With more hands the picture sharpens.</p>
           ) : (
             <ul className="cr-finding-list">
-              {wins.map((f, i) => (
+              {[...wins, ...posWins].map((f, i) => (
                 <li key={i} className="cr-finding">
                   <div className="cr-finding-title">{f.title}</div>
                   <div className="cr-finding-body">{f.body}</div>
@@ -665,6 +1072,17 @@ export default function CoachingReport({ player, isMerged = false, isViewer = fa
         </div>
       )}
 
+      {/* Session-by-session breakdown — only in merged mode with ≥ 2 sessions */}
+      {hasSessionData && (
+        <div className="cr-session-section">
+          <SessionBreakdown sessionStats={perSessionStats} />
+          {sessionNarratives.length > 0 && (
+            <SessionNarratives narratives={sessionNarratives} />
+          )}
+        </div>
+      )}
+
+      {/* Key hands */}
       {hasAnyKnownCards ? (
         <div className="cr-key-hands">
           <h4 className="cr-col-title">Key hands</h4>

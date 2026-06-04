@@ -38,6 +38,8 @@ export function generateSession({
   sb = 5,
   bb = 10,
   startStack = 1500,
+  rebuys = false,
+  rebuyAmount = null,
   idPrefix = 'gen',
 } = {}) {
   const rand = mulberry32(seed);
@@ -150,6 +152,19 @@ export function generateSession({
     stacks[winner] += pot;
     push(`"${pname(winner)}" collected ${pot} from pot`);
     push(`-- ending hand #${h} --`);
+
+    if (rebuys) {
+      const rbAmt = rebuyAmount ?? startStack;
+      for (let i = 0; i < n; i++) {
+        const mustRebuy = stacks[i] <= 0;
+        const wantsRebuy = !mustRebuy && stacks[i] < rbAmt * 0.25 && rand() < 0.5;
+        if (mustRebuy || wantsRebuy) {
+          push(`The player "${pname(i)}" quits the game with a stack of ${stacks[i]}`);
+          stacks[i] = rbAmt;
+          push(`The player "${pname(i)}" joined the game with a stack of ${rbAmt}`);
+        }
+      }
+    }
   }
 
   for (let i = 0; i < n; i++) push(`The player "${pname(i)}" quits the game with a stack of ${stacks[i]}`);

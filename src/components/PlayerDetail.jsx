@@ -792,7 +792,7 @@ function ChipTimeline({ handsHistory, isViewer = false }) {
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
-export default function PlayerDetail({ player: p, isMerged = false, isViewer = false, handActionLogs = {}, onRename = null }) {
+export default function PlayerDetail({ player: p, isMerged = false, isViewer = false, handActionLogs = {}, onRename = null, sessions = [], playerConfig = null }) {
   const [showRadarInfo, setShowRadarInfo] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [handFilter, setHandFilter] = useState('all');
@@ -1118,7 +1118,7 @@ export default function PlayerDetail({ player: p, isMerged = false, isViewer = f
 
       {/* ── Coaching report (shown for every player; depth scales with how many
            hole cards we know — full for the viewer, showdowns-only for others) ── */}
-      {detailMode && <CoachingReport player={p} isMerged={isMerged} isViewer={isViewer} handActionLogs={handActionLogs} />}
+      {detailMode && <CoachingReport player={p} isMerged={isMerged} isViewer={isViewer} handActionLogs={handActionLogs} sessions={sessions} playerConfig={playerConfig} />}
 
       {/* ── Everything below is detailed mode only ─────────────────────────── */}
       {detailMode && <>

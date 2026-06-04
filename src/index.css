@@ -1296,6 +1296,60 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -0.02em; }
   line-height: 1.4;
 }
 
+/* ── Session-by-session breakdown ───────────────────────────────────────────── */
+.cr-session-section { margin-top: 20px; display: flex; flex-direction: column; gap: 16px; }
+.cr-session-breakdown { }
+.cr-session-table {
+  width: 100%; border-collapse: collapse; font-size: 0.81rem; margin-top: 4px;
+}
+.cr-session-table th {
+  text-align: left; padding: 6px 10px; color: var(--muted);
+  font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--border); white-space: nowrap;
+}
+.cr-session-table td { padding: 6px 10px; border-bottom: 1px solid rgba(255,255,255,0.04); }
+.cr-session-last td { background: rgba(108, 92, 231, 0.07); }
+.cr-session-name { font-weight: 500; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cr-session-badge {
+  display: inline-block; margin-left: 6px; font-size: 0.6rem;
+  background: var(--accent); color: var(--bg); padding: 1px 5px;
+  border-radius: 3px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.05em; vertical-align: middle;
+}
+
+/* ── Session change narratives ──────────────────────────────────────────────── */
+.cr-session-narratives { display: flex; flex-direction: column; gap: 8px; }
+.cr-session-narrative {
+  border-left: 3px solid var(--border); padding: 9px 12px;
+  border-radius: 0 6px 6px 0; background: var(--surface2);
+}
+.cr-session-narrative-alert    { border-left-color: var(--gold);    background: rgba(255,209,102,0.06); }
+.cr-session-narrative-positive { border-left-color: var(--accent2); background: rgba(0,212,170,0.06);  }
+.cr-sn-title { font-size: 0.84rem; font-weight: 700; margin-bottom: 4px; }
+.cr-sn-body  { font-size: 0.79rem; color: var(--text); line-height: 1.5; }
+
+/* ── Next session focus box ─────────────────────────────────────────────────── */
+.cr-focus {
+  background: rgba(108,92,231,0.07); border: 1px solid rgba(108,92,231,0.22);
+  border-radius: 10px; padding: 14px 16px; margin-top: 14px;
+}
+.cr-focus-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 12px; }
+.cr-focus-item { display: flex; gap: 12px; align-items: flex-start; }
+.cr-focus-num {
+  flex-shrink: 0; width: 22px; height: 22px; border-radius: 50%;
+  background: var(--accent); color: var(--bg); font-size: 0.72rem;
+  font-weight: 800; display: flex; align-items: center; justify-content: center;
+  margin-top: 1px;
+}
+.cr-focus-content { min-width: 0; }
+.cr-focus-badge {
+  display: inline-block; font-size: 0.62rem; text-transform: uppercase;
+  letter-spacing: 0.07em; background: rgba(108,92,231,0.18); color: var(--accent);
+  padding: 1px 6px; border-radius: 3px; margin-bottom: 3px; font-weight: 700;
+}
+.cr-focus-title  { font-size: 0.84rem; font-weight: 700; margin-bottom: 2px; }
+.cr-focus-action { font-size: 0.79rem; color: var(--text); line-height: 1.45; }
+
 /* ── Summary Cards (Home Page) ──────────────────────────────────────────────── */
 .summary-grid {
   display: grid;

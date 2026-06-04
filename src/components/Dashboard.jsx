@@ -279,7 +279,7 @@ export default function Dashboard({ data, fileName, isMerged, sessionCount, sele
         ))}
       </div>
 
-      {selected && <PlayerDetail player={selected} isMerged={isMerged} isViewer={viewerNames.includes(selected.name)} handActionLogs={data.handActionLogs || {}} onRename={onPlayerConfigChange ? (newName) => renamePlayer(selected.name, newName) : null} />}
+      {selected && <PlayerDetail player={selected} isMerged={isMerged} isViewer={viewerNames.includes(selected.name)} handActionLogs={data.handActionLogs || {}} onRename={onPlayerConfigChange ? (newName) => renamePlayer(selected.name, newName) : null} sessions={isMerged ? allSessions.filter(s => selectedIds.includes(s.id)) : allSessions} playerConfig={playerConfig} />}
 
       <hr className="divider" />
 
