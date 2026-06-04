@@ -253,19 +253,22 @@ export function analyseLog(rows, viewerName = null) {
     const shownDown = Object.keys(hand.shownCards).filter(n => {
       const c = hand.shownCards[n]; return c && c[0] && c[1];
     });
-    // For each player at showdown, record their pot result (won solo / lost)
-    // against *every* opponent who also reached showdown — so the W–L matches
-    // the hands listed in the drill-down (incl. multiway pots a third player
-    // scooped). Chops are pushes and don't count toward W or L.
+    // Iterate over every pair at showdown. Only record a result when exactly
+    // one of the two players won — guarantees A's wins vs B always equals B's
+    // losses vs A. Both won = chop (push). Neither won = a third player
+    // scooped; no h2h result between these two.
     if (shownDown.length >= 2) {
-      for (const a of shownDown) {
-        const aWon = winnerSet.has(a);
-        if (aWon && isSplitPot) continue; // a chopped — push, skip
-        for (const b of shownDown) {
-          if (a === b) continue;
-          const pa = getPlayer(a);
-          const rec = pa.vsOpponents[b] || (pa.vsOpponents[b] = { w: 0, l: 0 });
-          if (aWon) rec.w++; else rec.l++;
+      for (let i = 0; i < shownDown.length; i++) {
+        for (let j = i + 1; j < shownDown.length; j++) {
+          const a = shownDown[i], b = shownDown[j];
+          const aWon = winnerSet.has(a), bWon = winnerSet.has(b);
+          if (aWon === bWon) continue; // chop or third-party scoop — no result
+          const winner = aWon ? a : b;
+          const loser  = aWon ? b : a;
+          const pw = getPlayer(winner);
+          (pw.vsOpponents[loser] || (pw.vsOpponents[loser] = { w: 0, l: 0 })).w++;
+          const pl = getPlayer(loser);
+          (pl.vsOpponents[winner] || (pl.vsOpponents[winner] = { w: 0, l: 0 })).l++;
         }
       }
     }

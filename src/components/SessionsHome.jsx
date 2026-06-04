@@ -1,7 +1,8 @@
-import { useCallback, useRef, useMemo } from 'react';
+import { useCallback, useRef, useMemo, useState } from 'react';
 import { hasOutdatedSessions, clearAllSessions } from '../sessions.js';
 import { resolveAlias } from '../playerConfig.js';
 import PlayerManagement from './PlayerManagement.jsx';
+import HandReplayer from './HandReplayer.jsx';
 
 function fmt(iso) {
   if (!iso) return '—';
@@ -13,13 +14,14 @@ function fmt(iso) {
   return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-function SummaryCard({ icon, label, value, sub, color }) {
+function SummaryCard({ icon, label, value, sub, color, onReplay }) {
   return (
     <div className="summary-card">
       <div className="summary-icon">{icon}</div>
       <div className="summary-label">{label}</div>
       <div className="summary-value" style={{ color }}>{value}</div>
       {sub && <div className="summary-sub">{sub}</div>}
+      {onReplay && <button className="replay-btn" style={{ marginTop: 6 }} onClick={onReplay}>▶ Replay</button>}
     </div>
   );
 }
@@ -64,17 +66,17 @@ function computeSummary(sessions, config) {
         if (takeHome <= 0) continue;
         if (h.isSplit) {
           if (!biggestPotSplit || takeHome > biggestPotSplit.amount) {
-            biggestPotSplit = { amount: takeHome, potSize: h.potSize, sessionName: s.fileName };
+            biggestPotSplit = { amount: takeHome, potSize: h.potSize, sessionName: s.fileName, hand: h, session: s };
           }
         } else if (!biggestPotWon || takeHome > biggestPotWon.amount) {
-          biggestPotWon = { amount: takeHome, sessionName: s.fileName };
+          biggestPotWon = { amount: takeHome, sessionName: s.fileName, hand: h, session: s };
         }
       }
 
       for (const bb of (vp.badBeats || [])) {
         if (!worstBadBeat || bb.myHandRank > worstBadBeat.rank ||
             (bb.myHandRank === worstBadBeat.rank && bb.potSize > worstBadBeat.potSize)) {
-          worstBadBeat = { rank: bb.myHandRank, handName: bb.myHandName, potSize: bb.potSize, sessionName: s.fileName };
+          worstBadBeat = { rank: bb.myHandRank, handName: bb.myHandName, potSize: bb.potSize, sessionName: s.fileName, hand: bb, session: s };
         }
       }
     }
@@ -85,6 +87,16 @@ function computeSummary(sessions, config) {
 
 export default function SessionsHome({ sessions, onView, onViewMerged, onViewTrends, onDelete, onNewFiles, error, playerConfig, onPlayerConfigChange, viewerName }) {
   const inputRef = useRef(null);
+  const [replay, setReplay] = useState(null);
+
+  const openReplay = (hand, session) => {
+    const log = session.stats.handActionLogs?.[`${session.id}_${hand.num}`]
+      ?? session.stats.handActionLogs?.[hand.num]
+      ?? hand.actionLog
+      ?? [];
+    if (!log.length) return;
+    setReplay({ log, hand, heroName: viewerName, heroCards: hand.c1 && hand.c2 ? [hand.c1, hand.c2] : null });
+  };
 
   const handleFiles = useCallback((files) => {
     if (files && files.length) onNewFiles(files);
@@ -188,6 +200,7 @@ export default function SessionsHome({ sessions, onView, onViewMerged, onViewTre
         )}
 
         {/* ── Summary Cards ──────────────────────────────────────────────── */}
+        {replay && <HandReplayer log={replay.log} hand={replay.hand} heroName={replay.heroName} heroCards={replay.heroCards} onClose={() => setReplay(null)} />}
         {summary && (
           <div className="summary-grid">
             <SummaryCard icon="🃏" label="Total Hands" value={summary.totalHands.toLocaleString()} />
@@ -204,6 +217,7 @@ export default function SessionsHome({ sessions, onView, onViewMerged, onViewTre
                   label="Biggest Pot Won"
                   value={summary.biggestPotWon ? summary.biggestPotWon.amount.toLocaleString() : '—'}
                   sub={summary.biggestPotWon?.sessionName}
+                  onReplay={summary.biggestPotWon?.hand ? () => openReplay(summary.biggestPotWon.hand, summary.biggestPotWon.session) : null}
                 />
                 <SummaryCard
                   icon="🤝"
@@ -211,12 +225,14 @@ export default function SessionsHome({ sessions, onView, onViewMerged, onViewTre
                   value={summary.biggestPotSplit ? summary.biggestPotSplit.amount.toLocaleString() : '—'}
                   color="var(--gold)"
                   sub={summary.biggestPotSplit ? `of ${summary.biggestPotSplit.potSize.toLocaleString()}` : null}
+                  onReplay={summary.biggestPotSplit?.hand ? () => openReplay(summary.biggestPotSplit.hand, summary.biggestPotSplit.session) : null}
                 />
                 <SummaryCard
                   icon="💔"
                   label="Worst Bad Beat"
                   value={summary.worstBadBeat ? summary.worstBadBeat.handName : '—'}
                   sub={summary.worstBadBeat ? `Pot: ${summary.worstBadBeat.potSize.toLocaleString()}` : null}
+                  onReplay={summary.worstBadBeat?.hand ? () => openReplay(summary.worstBadBeat.hand, summary.worstBadBeat.session) : null}
                 />
                 <SummaryCard
                   icon="🚀"
