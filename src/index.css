@@ -764,6 +764,8 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -0.02em; }
 .bb-num { font-weight: 700; color: var(--text); }
 .bb-severity { letter-spacing: -2px; }
 .bb-pot { margin-left: auto; color: var(--muted); }
+.bb-pot.pos { color: var(--win); }
+.bb-pot.neg { color: var(--lose); }
 .bb-body {
   display: flex;
   align-items: center;
