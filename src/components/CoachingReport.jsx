@@ -412,7 +412,7 @@ function buildSessionNarratives(sessionStats) {
         narratives.push({
           kind: 'positive', metric: 'Aggression',
           title: `More aggressive last session: AF ${avg} → ${last.af}`,
-          body: `You applied more pressure postflop. If backed by good hand reading this is a positive shift — just ensure you\'re mixing in some check-calls so you\'re not purely mechanical with your betting.`,
+          body: `You applied more pressure postflop. If backed by good hand reading this is a positive shift — just ensure you're mixing in some check-calls so you're not purely mechanical with your betting.`,
           focus: null,
         });
       }
@@ -435,7 +435,7 @@ function buildSessionNarratives(sessionStats) {
         narratives.push({
           kind: 'positive', metric: 'C-bet',
           title: `C-bet increased last session: ${avg}% → ${last.cbetPct}%`,
-          body: `You followed up preflop raises with more flop bets. More c-betting keeps opponents under pressure — just make sure you\'re picking good boards where your range has an advantage.`,
+          body: `You followed up preflop raises with more flop bets. More c-betting keeps opponents under pressure — just make sure you're picking good boards where your range has an advantage.`,
           focus: null,
         });
       }
@@ -761,6 +761,11 @@ function analyzeHandActions(hand, playerName, log = hand.actionLog) {
       delta = Math.max(0, (e.amount || 0) - before);
       betToMatch = e.amount || 0;
       raisesThisStreet++;
+    } else if (e.action === 'return') {
+      // Uncalled bet handed back — it was never matched, so it leaves the pot.
+      pot = Math.max(0, pot - (e.amount || 0));
+      contrib[e.player] = Math.max(0, before - (e.amount || 0));
+      continue;
     } else {
       continue;
     }

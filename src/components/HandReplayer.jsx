@@ -1,95 +1,18 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { playActionSound } from '../sounds.js';
+import { buildReplayFrames } from '../replayEngine.js';
+import { CardBadge, ActionVerb } from './cardUI.jsx';
+import { fmtDate } from '../format.js';
 
-function fmtDate(iso) {
-  if (!iso) return '—';
-  const [y, m, d] = iso.split('-');
-  return `${m}-${d}-${y}`;
-}
+const SPEEDS = [1, 1.5, 2];
+const BASE_DELAY_MS = 1100;
 
-function CardBadge({ card }) {
-  if (!card) return null;
-  const suitMap = { s: '♠', h: '♥', d: '♦', c: '♣', '?': '?' };
-  return (
-    <span className={`card-badge ${card.suit}`}>
-      {card.rank}{suitMap[card.suit] || card.suit}
-    </span>
-  );
-}
-
-const ACT_TEXT = {
-  'post-sb': a => `posts small blind ${a.amount?.toLocaleString() ?? ''}`,
-  'post-bb': a => `posts big blind ${a.amount?.toLocaleString() ?? ''}`,
-  'fold': () => 'folds',
-  'call': a => `calls ${a.amount?.toLocaleString() ?? ''}`,
-  'raise': a => `raises to ${a.amount?.toLocaleString() ?? ''}`,
-  'bet': a => `bets ${a.amount?.toLocaleString() ?? ''}`,
-  'check': () => 'checks',
-  'show': () => 'shows hand',
-  'collect': a => `collects ${a.amount?.toLocaleString() ?? ''}`,
-};
-
-function actionVerb(ev) {
-  const showCards = ev.action === 'show' && (ev.cards || []).filter(c => c && c.rank);
-  if (showCards && showCards.length) {
-    return <>shows {showCards.map((c, i) => <CardBadge key={i} card={c} />)}</>;
-  }
-  return ACT_TEXT[ev.action]?.(ev) ?? ev.action;
-}
-
-function buildReplayFrames(log, heroName, heroCards) {
-  const meta = (log || []).find(e => e.type === 'players');
-  const order = meta ? meta.players.slice() : [];
-  const state = {};
-  for (const pm of order) {
-    state[pm.name] = {
-      name: pm.name, seat: pm.seat, pos: pm.pos,
-      stack: pm.stack ?? 0, streetBet: 0, folded: false,
-      cards: (heroName && pm.name === heroName && heroCards) ? heroCards.slice() : null,
-      isHero: !!(heroName && pm.name === heroName),
-    };
-  }
-  const ensure = (name) => state[name] ||
-    (state[name] = { name, seat: null, pos: null, stack: 0, streetBet: 0, folded: false, cards: null, isHero: false });
-  const cloneP = (p) => ({ ...p, cards: p.cards ? p.cards.slice() : null });
-
-  const frames = [];
-  let street = 'preflop', board = [], pot = 0;
-  const order2 = order.length ? order.map(pm => pm.name) : null;
-
-  for (const ev of log || []) {
-    if (ev.type === 'players') continue;
-    if (ev.type === 'street') {
-      street = ev.street; board = ev.board || board;
-      for (const s of Object.values(state)) s.streetBet = 0;
-      continue;
-    }
-    if (ev.type !== 'action') continue;
-    const s = ensure(ev.player);
-    if (ev.action === 'fold') s.folded = true;
-    else if (ev.action === 'show') { if (ev.cards?.length) s.cards = ev.cards.filter(c => c && c.rank); }
-    else if (ev.action === 'collect') { s.stack += ev.amount || 0; pot = Math.max(0, pot - (ev.amount || 0)); }
-    else {
-      let delta = 0;
-      if (ev.action === 'post-sb' || ev.action === 'post-bb' || ev.action === 'bet') delta = ev.amount || 0;
-      else if (ev.action === 'call' || ev.action === 'raise') delta = Math.max(0, (ev.amount || 0) - s.streetBet);
-      if (delta > 0) { s.stack -= delta; s.streetBet += delta; pot += delta; }
-    }
-    const names = order2 || Object.keys(state);
-    frames.push({
-      street, board: board.slice(), pot, acting: ev.player, ev,
-      players: names.map(n => cloneP(state[n])),
-    });
-  }
-  return { frames, meta };
-}
-
-function ReplaySeat({ p, angle, acting, isDealer }) {
+function ReplaySeat({ p, angle, acting, isDealer, isWinner }) {
   const x = 50 + 44 * Math.cos(angle);
   const y = 50 + 46 * Math.sin(angle);
   return (
     <div
-      className={`rt-seat${acting ? ' acting' : ''}${p.folded ? ' folded' : ''}${p.isHero ? ' hero' : ''}`}
+      className={`rt-seat${acting ? ' acting' : ''}${p.folded ? ' folded' : ''}${p.isHero ? ' hero' : ''}${isWinner ? ' winner' : ''}`}
       style={{ left: `${x}%`, top: `${y}%` }}
     >
       <div className="rt-cards">
@@ -110,8 +33,13 @@ function ReplaySeat({ p, angle, acting, isDealer }) {
 
 export default function HandReplayer({ log, hand, heroName, heroCards, onClose }) {
   const { frames, meta } = useMemo(() => buildReplayFrames(log, heroName, heroCards), [log, heroName, heroCards]);
+  // Pot collectors — highlighted as winners on the final frame.
+  const winners = useMemo(() => new Set(
+    (log || []).filter(e => e.type === 'action' && e.action === 'collect').map(e => e.player)
+  ), [log]);
   const [i, setI] = useState(0);
   const [playing, setPlaying] = useState(false);
+  const [speed, setSpeed] = useState(1);
   const [soundOn, setSoundOn] = useState(true);
   const soundRef = useRef(soundOn);
   soundRef.current = soundOn;
@@ -119,9 +47,9 @@ export default function HandReplayer({ log, hand, heroName, heroCards, onClose }
   useEffect(() => {
     if (!playing) return undefined;
     if (i >= frames.length - 1) { setPlaying(false); return undefined; }
-    const t = setTimeout(() => setI(x => Math.min(x + 1, frames.length - 1)), 1100);
+    const t = setTimeout(() => setI(x => Math.min(x + 1, frames.length - 1)), BASE_DELAY_MS / speed);
     return () => clearTimeout(t);
-  }, [playing, i, frames.length]);
+  }, [playing, i, frames.length, speed]);
 
   useEffect(() => {
     if (!soundRef.current) return;
@@ -130,8 +58,22 @@ export default function HandReplayer({ log, hand, heroName, heroCards, onClose }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [i]);
 
+  // Keyboard: ←/→ step, space play/pause, Home restart, Escape closes.
+  useEffect(() => {
+    function onKey(e) {
+      if (e.key === 'Escape') { e.preventDefault(); onClose(); }
+      else if (e.key === 'ArrowLeft') { e.preventDefault(); setPlaying(false); setI(x => Math.max(0, x - 1)); }
+      else if (e.key === 'ArrowRight') { e.preventDefault(); setPlaying(false); setI(x => Math.min(frames.length - 1, x + 1)); }
+      else if (e.key === ' ') { e.preventDefault(); setPlaying(p => !p); }
+      else if (e.key === 'Home') { e.preventDefault(); setPlaying(false); setI(0); }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [frames.length, onClose]);
+
   if (!frames.length) return null;
   const f = frames[Math.min(i, frames.length - 1)];
+  const isLastFrame = i >= frames.length - 1;
 
   const heroIdx = f.players.findIndex(p => p.isHero);
   const rot = heroIdx >= 0 ? heroIdx : 0;
@@ -153,6 +95,7 @@ export default function HandReplayer({ log, hand, heroName, heroCards, onClose }
               angle={(90 + k * 360 / n) * Math.PI / 180}
               acting={p.name === f.acting}
               isDealer={meta?.dealer === p.name}
+              isWinner={isLastFrame && winners.has(p.name)}
             />
           ))}
           <div className="rt-center">
@@ -164,18 +107,22 @@ export default function HandReplayer({ log, hand, heroName, heroCards, onClose }
               ))}
             </div>
             <div className="rt-pot">Pot {f.pot.toLocaleString()}</div>
+            {isLastFrame && winners.size > 0 && (
+              <div className="rt-winner-tag">🏆 {[...winners].join(' & ')}</div>
+            )}
           </div>
         </div>
         <div className="replay-current">
           <span className="rt-street-tag">{f.street.toUpperCase()}</span>
           <span className="al-player">{f.ev.player}</span>
-          <span className="al-verb">{actionVerb(f.ev)}</span>
+          <span className="al-verb"><ActionVerb ev={f.ev} /></span>
         </div>
         <div className="replay-controls">
-          <button onClick={() => { setPlaying(false); setI(0); }} title="Restart">⏮</button>
-          <button onClick={() => { setPlaying(false); setI(x => Math.max(0, x - 1)); }} disabled={i <= 0} title="Previous">◀</button>
-          <button className="replay-play" onClick={() => setPlaying(p => !p)}>{playing ? '⏸ Pause' : '▶ Play'}</button>
-          <button onClick={() => { setPlaying(false); setI(x => Math.min(frames.length - 1, x + 1)); }} disabled={i >= frames.length - 1} title="Next">▶</button>
+          <button onClick={() => { setPlaying(false); setI(0); }} title="Restart (Home)">⏮</button>
+          <button onClick={() => { setPlaying(false); setI(x => Math.max(0, x - 1)); }} disabled={i <= 0} title="Previous (←)">◀</button>
+          <button className="replay-play" onClick={() => setPlaying(p => !p)} title="Play/pause (space)">{playing ? '⏸ Pause' : '▶ Play'}</button>
+          <button onClick={() => { setPlaying(false); setI(x => Math.min(frames.length - 1, x + 1)); }} disabled={i >= frames.length - 1} title="Next (→)">▶</button>
+          <button onClick={() => setSpeed(s => SPEEDS[(SPEEDS.indexOf(s) + 1) % SPEEDS.length])} title="Playback speed">{speed}×</button>
           <button onClick={() => setSoundOn(s => !s)} title={soundOn ? 'Mute sound' : 'Unmute sound'}>{soundOn ? '🔊' : '🔇'}</button>
           <span className="replay-progress">{i + 1}/{frames.length}</span>
         </div>

@@ -7,7 +7,7 @@ const hand = (hole, board) => bestHand(hole.map(c), board.map(c));
 
 describe('bestHand', () => {
   it('detects a royal flush (rank 9)', () => {
-    expect(hand(['Ah', 'Kh'], ['Qh', 'Jh', '10h'])).toEqual({ rank: 9, name: 'Royal Flush' });
+    expect(hand(['Ah', 'Kh'], ['Qh', 'Jh', '10h'])).toMatchObject({ rank: 9, name: 'Royal Flush' });
   });
 
   it('detects a straight flush (rank 8)', () => {
@@ -15,7 +15,7 @@ describe('bestHand', () => {
   });
 
   it('keeps the wheel straight flush (A-2-3-4-5) as a straight flush, not royal', () => {
-    expect(hand(['Ah', '2h'], ['3h', '4h', '5h'])).toEqual({ rank: 8, name: 'Straight Flush' });
+    expect(hand(['Ah', '2h'], ['3h', '4h', '5h'])).toMatchObject({ rank: 8, name: 'Straight Flush' });
   });
 
   it('detects four of a kind (rank 7)', () => {
@@ -44,6 +44,30 @@ describe('bestHand', () => {
 
   it('returns null with fewer than five valid cards', () => {
     expect(bestHand([c('Ah'), c('Kh')], [])).toBeNull();
+  });
+
+  it('breaks ties between equal ranks using kickers (score)', () => {
+    const board = ['Ad', '7c', '3h', '2s', '9d'];
+    const topKicker = hand(['As', 'Ks'], board); // pair of aces, K kicker
+    const lowKicker = hand(['Ac', 'Qc'], board); // pair of aces, Q kicker
+    expect(topKicker.rank).toBe(lowKicker.rank);
+    expect(topKicker.score).toBeGreaterThan(lowKicker.score);
+  });
+
+  it('scores a higher straight above a lower one, and the wheel lowest', () => {
+    const nine = hand(['9s', '8h'], ['7d', '6c', '5h']);
+    const eight = hand(['8s', '4h'], ['7d', '6c', '5h']);
+    const wheel = hand(['As', '2h'], ['3d', '4c', '5h']);
+    expect(nine.score).toBeGreaterThan(eight.score);
+    expect(eight.score).toBeGreaterThan(wheel.score);
+  });
+
+  it('scores a bigger full house above a smaller one', () => {
+    const acesFull = hand(['As', 'Ah'], ['Ad', 'Kc', 'Kh']);
+    const kingsFull = hand(['Ks', 'Kh'], ['Kd', 'Ac', 'Ah']);
+    expect(acesFull.rank).toBe(6);
+    expect(kingsFull.rank).toBe(6);
+    expect(acesFull.score).toBeGreaterThan(kingsFull.score);
   });
 
   it('picks the best 5 of 7 cards', () => {

@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { idbAvailable, idbGetAll, idbPut, idbPutMany, idbDelete, idbClear } from './idb.js';
-import { initSessions, saveSession, loadSessions, deleteSession, isDuplicate, hasOutdatedSessions } from './sessions.js';
+import { initSessions, saveSession, loadSessions, deleteSession, isDuplicate, hasOutdatedSessions, exportAllSessions, importSessions } from './sessions.js';
 import { analyseLog } from './stats.js';
 import { SPLIT_AND_SOLO } from './testFixtures.js';
 
@@ -39,6 +39,36 @@ describe('sessions storage (IndexedDB-backed cache)', () => {
     const a = loadSessions();
     a[0].fileName = 'mutated';
     expect(loadSessions()[0].fileName).toBe('fixture2'); // unchanged
+  });
+});
+
+describe('backup export / import', () => {
+  it('round-trips sessions (incl. rawLog) and skips duplicates on import', async () => {
+    await initSessions();
+    const stats = analyseLog(SPLIT_AND_SOLO);
+    const id = saveSession('backup-me', stats, new Date(2026, 1, 11), 'bkhash', 'Alice', 'raw,csv\n');
+
+    const backup = await exportAllSessions();
+    expect(backup.app).toBe('poker-dashboard-backup');
+    const exported = backup.sessions.find(s => s.id === id);
+    expect(exported).toBeTruthy();
+    expect(exported.rawLog).toBe('raw,csv\n'); // full record, not the lite cache copy
+
+    // Importing the same backup is a no-op (everything already present).
+    const again = await importSessions(backup);
+    expect(again.imported).toBe(0);
+    expect(again.skipped).toBeGreaterThanOrEqual(1);
+
+    // After deleting, the backup restores the session.
+    deleteSession(id);
+    expect(loadSessions().some(s => s.id === id)).toBe(false);
+    const restored = await importSessions(backup);
+    expect(restored.imported).toBe(1);
+    expect(loadSessions().some(s => s.id === id)).toBe(true);
+  });
+
+  it('rejects files that are not backups', async () => {
+    await expect(importSessions({ nope: true })).rejects.toThrow(/backup/);
   });
 });
 

@@ -1599,6 +1599,15 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -0.02em; }
 .rt-seat.folded { opacity: 0.4; }
 .rt-seat.acting .rt-name { box-shadow: 0 0 0 2px var(--gold); }
 .rt-seat.hero .rt-pname { color: var(--gold); }
+.rt-seat.winner .rt-name {
+  box-shadow: 0 0 0 2px var(--win), 0 0 14px rgba(0, 212, 170, 0.55);
+  border-color: var(--win);
+}
+.rt-seat.winner .rt-stack { color: var(--win); }
+.rt-winner-tag {
+  margin-top: 4px; font-size: 0.72rem; font-weight: 700; color: var(--gold);
+  background: rgba(0,0,0,0.4); padding: 2px 10px; border-radius: 10px;
+}
 .rt-cards { display: flex; gap: 2px; justify-content: center; min-height: 30px; align-items: center; }
 .rt-cardback {
   width: 20px; height: 28px; border-radius: 3px;

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { analyseLog } from './stats.js';
-import { MONEY_SESSION, AF_HAND, BAD_BEAT_HAND, SIDE_POT_HAND } from './testFixtures.js';
+import { MONEY_SESSION, AF_HAND, BAD_BEAT_HAND, SIDE_POT_HAND, UNCALLED_BET_HAND, LEAD_LOST_HAND } from './testFixtures.js';
 
 describe('analyseLog — money / standings', () => {
   const { players } = analyseLog(MONEY_SESSION);
@@ -68,6 +68,50 @@ describe('analyseLog — bad beat / suck-out / cooler detection', () => {
     expect(Bob.coolers).toHaveLength(1);
     expect(Alice.coolers[0].won).toBe(true);
     expect(Bob.coolers[0].won).toBe(false);
+  });
+});
+
+describe('analyseLog — per-street lead on bad beats', () => {
+  it('marks the loser ahead on flop & turn when the winner rivers a flush', () => {
+    const { players } = analyseLog(LEAD_LOST_HAND);
+    expect(players['Bob'].badBeats[0].aheadOn).toEqual(['flop', 'turn']);
+    expect(players['Alice'].suckOuts[0].behindOn).toEqual(['flop', 'turn']);
+  });
+
+  it('marks a flopped winner as never overtaken (loser never ahead)', () => {
+    // BAD_BEAT_HAND: Alice flops the flush, so set-of-kings Bob is never ahead.
+    const { players } = analyseLog(BAD_BEAT_HAND);
+    expect(players['Bob'].badBeats[0].aheadOn).toEqual([]);
+  });
+});
+
+describe('analyseLog — exact per-hand net', () => {
+  it('records collects minus contributions for each hand-history entry', () => {
+    const { players } = analyseLog(LEAD_LOST_HAND);
+    // Alice: 5 (SB) + 5 (complete) + 20 + 50 + 150 in, 460 collected → +230.
+    expect(players['Alice'].handsHistory[0].net).toBe(230);
+    // Bob: 10 (BB) + 20 + 50 + 150 in, nothing back → −230.
+    expect(players['Bob'].handsHistory[0].net).toBe(-230);
+  });
+
+  it('credits returned uncalled bets back to the bettor', () => {
+    const { players } = analyseLog(UNCALLED_BET_HAND);
+    // Alice: 5 + 25 + 60 in, 60 returned + 60 collected → +30.
+    expect(players['Alice'].handsHistory[0].net).toBe(30);
+    expect(players['Bob'].handsHistory[0].net).toBe(-30);
+  });
+});
+
+describe('analyseLog — uncalled bet returned', () => {
+  const { players, handActionLogs } = analyseLog(UNCALLED_BET_HAND);
+
+  it('records a `return` action so replay pot math balances', () => {
+    const log = handActionLogs[1];
+    const ret = log.find(a => a.action === 'return');
+    expect(ret).toMatchObject({ player: 'Alice', amount: 60, street: 'flop' });
+    // Chips actually contested: blinds + the called 30s = 60. Returned 60 must
+    // not inflate the pot the winner collected.
+    expect(players['Alice'].handsHistory[0].potSize).toBe(60);
   });
 });
 

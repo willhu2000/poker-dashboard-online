@@ -1,6 +1,6 @@
 import { useCallback, useRef, useMemo, useState } from 'react';
 import { hasOutdatedSessions, clearAllSessions } from '../sessions.js';
-import { resolveAlias } from '../playerConfig.js';
+import { resolveAlias, chipsToDollars } from '../playerConfig.js';
 import PlayerManagement from './PlayerManagement.jsx';
 import HandReplayer from './HandReplayer.jsx';
 
@@ -85,9 +85,20 @@ function computeSummary(sessions, config) {
   return { totalHands, viewerNet, hasViewer, biggestPotWon, biggestPotSplit, worstBadBeat, bestSession, worstSession, suckOutCount };
 }
 
-export default function SessionsHome({ sessions, onView, onViewMerged, onViewTrends, onDelete, onNewFiles, error, playerConfig, onPlayerConfigChange, viewerName }) {
+export default function SessionsHome({ sessions, onView, onViewMerged, onViewTrends, onDelete, onNewFiles, onExportBackup, onImportBackup, error, playerConfig, onPlayerConfigChange, viewerName }) {
   const inputRef = useRef(null);
+  const restoreRef = useRef(null);
   const [replay, setReplay] = useState(null);
+
+  const restoreInput = (
+    <input
+      ref={restoreRef}
+      type="file"
+      accept=".json,application/json"
+      style={{ display: 'none' }}
+      onChange={e => { if (e.target.files?.[0]) onImportBackup?.(e.target.files[0]); e.target.value = ''; }}
+    />
+  );
 
   const openReplay = (hand, session) => {
     const log = session.stats.handActionLogs?.[`${session.id}_${hand.num}`]
@@ -139,6 +150,14 @@ export default function SessionsHome({ sessions, onView, onViewMerged, onViewTre
         <p style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>
           Export from PokerNow → Settings → Download CSV
         </p>
+        {onImportBackup && (
+          <p>
+            <button className="btn btn-ghost" style={{ fontSize: '0.82rem' }} onClick={() => restoreRef.current.click()}>
+              ⬆ Restore from a backup file
+            </button>
+          </p>
+        )}
+        {restoreInput}
       </div>
     );
   }
@@ -149,6 +168,19 @@ export default function SessionsHome({ sessions, onView, onViewMerged, onViewTre
         <div>
           <h1>{viewerName ? <>♠ <span className="title-gradient">{viewerName}'s</span> Poker Dashboard</> : '♠ Poker Dashboard'}</h1>
           <div style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>Weekly home game tracker</div>
+        </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+          {onExportBackup && (
+            <button className="btn btn-ghost" style={{ fontSize: '0.82rem' }} onClick={onExportBackup} title="Download every stored session (including raw logs) as one JSON file">
+              ⬇ Backup
+            </button>
+          )}
+          {onImportBackup && (
+            <button className="btn btn-ghost" style={{ fontSize: '0.82rem' }} onClick={() => restoreRef.current.click()} title="Restore sessions from a backup JSON — already-present sessions are skipped">
+              ⬆ Restore
+            </button>
+          )}
+          {restoreInput}
         </div>
       </div>
 
@@ -211,6 +243,7 @@ export default function SessionsHome({ sessions, onView, onViewMerged, onViewTre
                   label="Your Net Chips"
                   value={`${summary.viewerNet >= 0 ? '+' : ''}${summary.viewerNet.toLocaleString()}`}
                   color={summary.viewerNet >= 0 ? 'var(--win)' : 'var(--lose)'}
+                  sub={chipsToDollars(summary.viewerNet, playerConfig)}
                 />
                 <SummaryCard
                   icon="🏆"

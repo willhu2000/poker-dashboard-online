@@ -56,6 +56,46 @@ function positionsFor(hand) {
   return out;
 }
 
+// Exact chips in/out per player for one hand, derived from the action log.
+// `call`/`raise` amounts are "to" totals for the street, so deltas need
+// per-street bet tracking (same model as the replayer). Returns name → net.
+function chipDeltas(actionLog) {
+  const streetBet = {};
+  const net = {};
+  for (const ev of actionLog) {
+    if (ev.type === 'street') { for (const k of Object.keys(streetBet)) streetBet[k] = 0; continue; }
+    if (ev.type !== 'action') continue;
+    const amt = ev.amount || 0;
+    const name = ev.player;
+    if (!(name in net)) { net[name] = 0; streetBet[name] = 0; }
+    if (ev.action === 'post-sb' || ev.action === 'post-bb' || ev.action === 'bet') {
+      net[name] -= amt; streetBet[name] += amt;
+    } else if (ev.action === 'call' || ev.action === 'raise') {
+      const d = Math.max(0, amt - streetBet[name]);
+      net[name] -= d; streetBet[name] += d;
+    } else if (ev.action === 'return') {
+      net[name] += amt; streetBet[name] = Math.max(0, streetBet[name] - amt);
+    } else if (ev.action === 'collect') {
+      net[name] += amt;
+    }
+  }
+  return net;
+}
+
+// Streets (of those dealt) where `cards` beat `oppCards` outright — used to
+// tell a true bad beat ("ahead until the river") from a hand that was never
+// in front. Scores are kicker-aware via bestHand.
+function streetsAhead(cards, oppCards, board) {
+  const out = [];
+  for (const [street, n] of [['flop', 3], ['turn', 4], ['river', 5]]) {
+    if (board.length < n) break;
+    const mine = bestHand(cards, board.slice(0, n));
+    const theirs = bestHand(oppCards, board.slice(0, n));
+    if (mine && theirs && mine.score > theirs.score) out.push(street);
+  }
+  return out;
+}
+
 // Walk a hand's action log to credit 3-bet (a preflop re-raise facing one open)
 // and continuation-bet (the preflop aggressor making the first flop bet)
 // opportunities + actions. Approximations suitable for a home-game tool.
@@ -138,7 +178,6 @@ export function analyseLog(rows, viewerName = null) {
         // wins
         handsWon: 0,
         handsSplit: 0,   // pots shared with ≥1 other winner
-        potsWon: 0,
         // ── Advanced analytics accumulators ──────────────────────────────────
         // Per-position counts: { h: hands, v: vpipHands, p: pfrHands, w: wins }.
         posStats: { BTN: zPos(), SB: zPos(), BB: zPos(), LP: zPos(), MP: zPos(), EP: zPos() },
@@ -284,7 +323,9 @@ export function analyseLog(rows, viewerName = null) {
         p.handCategories[cat] = (p.handCategories[cat] || 0) + 1;
         p.allHandsShown++;
         p.rangeHands.push({ c1, c2 });
-        if (cat.startsWith('Premium') || cat.startsWith('Strong Pair') || cat === 'Strong Ace (AQs/AJs)') {
+        // Premium = AA/KK/QQ/JJ/AK (matches the glossary and the viewer-cards
+        // branch below — keep both definitions identical or luckiness skews).
+        if (cat.startsWith('Premium') || cat.startsWith('Strong Pair')) {
           p.premiumHandsShown++;
         }
       }
@@ -341,6 +382,10 @@ export function analyseLog(rows, viewerName = null) {
             potSize,
           };
 
+          // Streets where the loser was genuinely in front — distinguishes
+          // "ahead until the river" from "was never ahead" (closer to a cooler).
+          const aheadOn = streetsAhead(lc, wc, hand.board);
+
           // Record on the loser as a bad beat
           getPlayer(loserName).badBeats.push({
             ...entry,
@@ -350,6 +395,7 @@ export function analyseLog(rows, viewerName = null) {
             oppName: winnerName,
             oppC1: wc[0], oppC2: wc[1],
             oppHandName: winnerEval.name,
+            aheadOn,
           });
 
           // Record on the winner as a suck-out
@@ -364,6 +410,7 @@ export function analyseLog(rows, viewerName = null) {
             oppHandName: loserEval.name,
             oppHandRank: loserEval.rank, // severity = what we beat
             wonAmount: winnerWonAmount,
+            behindOn: aheadOn, // streets the winner was trailing on
           });
 
           // Record cooler when both players had strong hands
@@ -394,6 +441,7 @@ export function analyseLog(rows, viewerName = null) {
     }
 
     // ── Hand history (all dealt hands, for the expandable table) ──────────────
+    const handNet = chipDeltas(hand.actionLog);
     for (const name of dealtNames) {
       const p = getPlayer(name);
       const shownCards = hand.shownCards[name];
@@ -444,6 +492,9 @@ export function analyseLog(rows, viewerName = null) {
         wasShown,
         wonAmount,
         potSize,
+        // Exact chips won/lost this hand (collects + returns − contributions),
+        // derived from the action log. Powers the rebuy-proof net timeline.
+        net: handNet[name] ?? 0,
         // Stack entering this hand (from the `Player stacks:` snapshot), used to
         // plot chip count over time. Null if the player wasn't in that snapshot.
         stack: hand.players[name]?.stack ?? null,
@@ -662,6 +713,18 @@ export function analyseLog(rows, viewerName = null) {
       // Carry the shown cards on the action-log entry so the play-by-play can
       // render the actual hand ("shows A♠ K♥") instead of a generic "shows hand".
       currentHand.actionLog.push({ type: 'action', street: currentHand.street, player: name, action: 'show', cards });
+      continue;
+    }
+
+    // ── Uncalled bet returned ───────────────────────────────────────────────
+    // Emitted when a bet/raise isn't called (e.g. everyone folds). The chips go
+    // back to the bettor, so the replayer/pot math must subtract them — they
+    // were never really in the pot.
+    const returnMatch = e.match(/^Uncalled bet of (\d+) returned to "(.+?)"/);
+    if (returnMatch) {
+      const amount = parseInt(returnMatch[1], 10);
+      const name = extractName(returnMatch[2]);
+      currentHand.actionLog.push({ type: 'action', street: currentHand.street, player: name, action: 'return', amount });
       continue;
     }
 

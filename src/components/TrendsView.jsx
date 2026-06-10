@@ -35,6 +35,23 @@ function arrow(delta, dir) {
     : { sym: delta > 0 ? '↑' : '↓', color: 'var(--lose)' };
 }
 
+// Per-point dot renderer: hollow circle when the player had fewer than
+// SMALL_SAMPLE_THRESHOLD hands that session (the `__small` flag), filled
+// otherwise. Recharts calls this once per data point.
+const makeDot = (name, color) => (props) => {
+  const { cx, cy, payload, index } = props;
+  if (cx == null || cy == null || payload?.[name] == null) return <g key={`${name}-dot-${index}`} />;
+  const small = !!payload[`${name}__small`];
+  return (
+    <circle
+      key={`${name}-dot-${index}`}
+      cx={cx} cy={cy} r={3}
+      stroke={color} strokeWidth={1.5}
+      fill={small ? '#0f1117' : color}
+    />
+  );
+};
+
 const Tip = ({ active, payload, label }) => {
   if (!active || !payload?.length) return null;
   // Order players highest → lowest at this point (null/missing values sink to
@@ -244,7 +261,7 @@ export default function TrendsView({ sessions, onBack, playerConfig }) {
                       dataKey={name}
                       stroke={color}
                       strokeWidth={2}
-                      dot={{ r: 3 }}
+                      dot={makeDot(name, color)}
                       activeDot={{ r: 5 }}
                       connectNulls
                       isAnimationActive={false}
@@ -253,6 +270,9 @@ export default function TrendsView({ sessions, onBack, playerConfig }) {
                 })}
               </LineChart>
             </ResponsiveContainer>
+            <p style={{ color: 'var(--muted)', fontSize: '0.7rem', marginTop: 4 }}>
+              Hollow dots = sessions with fewer than {SMALL_SAMPLE_THRESHOLD} hands (noisy).
+            </p>
           </div>
         ))}
 

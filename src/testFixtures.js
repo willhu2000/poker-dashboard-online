@@ -213,6 +213,61 @@ export const BAD_BEAT_HAND = makeRows([
   'The player "Bob @ b" quits the game with a stack of 620',
 ]);
 
+// Fold-out: Bob folds to Alice's flop bet, so PokerNow returns the uncalled
+// bet before the collect. The action log must carry a `return` entry so the
+// replayer's pot/stack math balances.
+export const UNCALLED_BET_HAND = makeRows([
+  'The player "Alice @ a" joined the game with a stack of 1000',
+  'The player "Bob @ b" joined the game with a stack of 1000',
+  '-- starting hand #1 (id: ub1)',
+  'Player stacks: #1 "Alice @ a" (1000) | #2 "Bob @ b" (1000)',
+  '"Bob @ b" is the dealer',
+  '"Alice @ a" posts a small blind of 5',
+  '"Bob @ b" posts a big blind of 10',
+  '"Alice @ a" raises to 30',
+  '"Bob @ b" calls 30',
+  'Flop:  [A♠, K♥, 2♦]',
+  '"Alice @ a" bets 60',
+  '"Bob @ b" folds',
+  'Uncalled bet of 60 returned to "Alice @ a"',
+  '"Alice @ a" collected 60 from pot',
+  '-- ending hand #1 --',
+  'The player "Alice @ a" quits the game with a stack of 1030',
+  'The player "Bob @ b" quits the game with a stack of 970',
+]);
+
+// Lead-lost bad beat: Bob flops a set of kings and is ahead on the flop and
+// turn; Alice's runner-runner club flush arrives on the river. Exercises the
+// per-street `aheadOn`/`behindOn` lead analysis.
+export const LEAD_LOST_HAND = makeRows([
+  'The player "Alice @ a" joined the game with a stack of 1000',
+  'The player "Bob @ b" joined the game with a stack of 1000',
+  '-- starting hand #1 (id: ll1)',
+  'Player stacks: #1 "Alice @ a" (1000) | #2 "Bob @ b" (1000)',
+  '"Bob @ b" is the dealer',
+  '"Alice @ a" posts a small blind of 5',
+  '"Bob @ b" posts a big blind of 10',
+  '"Alice @ a" calls 10',
+  '"Bob @ b" checks',
+  'Flop:  [K♥, 7♣, 2♣]',
+  '"Alice @ a" checks',
+  '"Bob @ b" bets 20',
+  '"Alice @ a" calls 20',
+  'Turn:  [K♥, 7♣, 2♣, 8♦]',
+  '"Alice @ a" checks',
+  '"Bob @ b" bets 50',
+  '"Alice @ a" calls 50',
+  'River:  [K♥, 7♣, 2♣, 8♦, 4♣]',
+  '"Alice @ a" bets 150',
+  '"Bob @ b" calls 150',
+  '"Alice @ a" shows a J♣, 9♣.',   // club flush (river)
+  '"Bob @ b" shows a K♠, K♦.',     // set of kings
+  '"Alice @ a" collected 460 from pot',
+  '-- ending hand #1 --',
+  'The player "Alice @ a" quits the game with a stack of 1230',
+  'The player "Bob @ b" quits the game with a stack of 770',
+]);
+
 // Side pots: Alice (short stack) collects a main pot AND a side pot. Two
 // `collected` lines for the same player is NOT a split — take-home sums them.
 export const SIDE_POT_HAND = makeRows([

@@ -2,7 +2,7 @@ import { useState, useRef, useCallback } from 'react';
 import Leaderboard from './Leaderboard.jsx';
 import PlayerDetail from './PlayerDetail.jsx';
 import OverviewCharts from './OverviewCharts.jsx';
-import { resolveCanonicalFromDisplay } from '../playerConfig.js';
+import { resolveCanonicalFromDisplay, chipsToDollars } from '../playerConfig.js';
 import { playersToCsv, buildTextSummary, downloadFile, safeFileName } from '../exportSummary.js';
 
 // Format a signed chip total: "+125" for wins, "-400" for losses, "0" for break-even.
@@ -223,7 +223,11 @@ export default function Dashboard({ data, fileName, isMerged, sessionCount, sele
         const mostAgg = [...playerList].sort((a, b) => b.af - a.af)[0];
         const tightest = [...playerList].filter(x => x.handsDealt >= 5).sort((a, b) => a.vpip - b.vpip)[0];
         const topIsWinner = top && top.netChips > 0;
-        const heroSub = (p) => p ? `${p.handsDealt} hands · ${p.vpip}% VPIP` : null;
+        const heroSub = (p) => {
+          if (!p) return null;
+          const dollars = chipsToDollars(p.netChips, playerConfig);
+          return `${p.handsDealt} hands · ${p.vpip}% VPIP${dollars ? ` · ${dollars}` : ''}`;
+        };
         return (
           <>
             <div className="hero-grid">

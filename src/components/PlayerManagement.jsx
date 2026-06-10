@@ -171,6 +171,22 @@ export default function PlayerManagement({ sessions, config, onConfigChange }) {
                 Select your player, merge aliases, or hide players from views.
               </div>
 
+              <div className="player-mgmt-hint" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                💵 Chip value:
+                <input
+                  className="merge-input"
+                  style={{ width: 90 }}
+                  type="number"
+                  min="0"
+                  step="any"
+                  placeholder="e.g. 100"
+                  value={config?.chipsPerDollar ?? ''}
+                  onChange={e => onConfigChange({ ...config, chipsPerDollar: e.target.value ? +e.target.value : null })}
+                />
+                chips = $1
+                <span style={{ color: 'var(--muted)' }}>— shows dollar amounts next to net chips (leave empty to hide)</span>
+              </div>
+
               <div className="player-chips">
                 {visiblePlayers.map(name => {
                   const isMe = isViewer(name, config);

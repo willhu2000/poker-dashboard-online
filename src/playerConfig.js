@@ -11,7 +11,8 @@ const KEY = 'poker-player-config';
  *   renames: {                // canonical name → custom display name
  *     "Will": "William the Great"
  *   },
- *   hidden: ["Bot"]           // canonical names to exclude from views
+ *   hidden: ["Bot"],          // canonical names to exclude from views
+ *   chipsPerDollar: 100       // chips per $1, for real-money display (null = off)
  * }
  */
 
@@ -68,6 +69,17 @@ export function getAliasesFor(canonicalName, config) {
   return Object.entries(config.aliases)
     .filter(([, canonical]) => canonical === canonicalName)
     .map(([raw]) => raw);
+}
+
+/** Convert a chip amount to a signed dollar string using config.chipsPerDollar
+ * (e.g. 100 chips = $1 → 2,550 chips → "+$25.50"). Returns null when no valid
+ * rate is configured, so callers can simply hide the dollar line. */
+export function chipsToDollars(chips, config) {
+  const rate = Number(config?.chipsPerDollar);
+  if (!rate || rate <= 0 || !Number.isFinite(rate) || chips == null) return null;
+  const d = chips / rate;
+  const sign = d > 0 ? '+' : d < 0 ? '-' : '';
+  return `${sign}$${Math.abs(d).toFixed(2)}`;
 }
 
 /** Check if a canonical name is the viewer. */

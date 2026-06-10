@@ -1,9 +1,10 @@
-import { useState, useEffect, lazy, Suspense } from 'react';
+import { useState, useEffect, useMemo, lazy, Suspense } from 'react';
 import './index.css';
-import { parseLog, extractGameDate, extractPlayerNames, formatSessionName, hashContent } from './parser.js';
+import { parseLog, extractGameDate, extractPlayerNames, formatSessionName, hashContent, toLocalDateStr } from './parser.js';
 import { analyseLog } from './stats.js';
-import { loadSessions, saveSession, deleteSession, mergeSessions, isDuplicate, initSessions } from './sessions.js';
+import { loadSessions, saveSession, deleteSession, mergeSessions, isDuplicate, initSessions, exportAllSessions, importSessions } from './sessions.js';
 import { loadPlayerConfig, savePlayerConfig, resolveAlias, resolveDisplayName } from './playerConfig.js';
+import { downloadFile } from './exportSummary.js';
 import SessionsHome from './components/SessionsHome.jsx';
 import ViewerPickerModal from './components/ViewerPickerModal.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
@@ -41,6 +42,29 @@ function resolveViewerNames(sessions, stats, playerConfig = null) {
   return fallback ? [fallback] : [];
 }
 
+// ── View ↔ URL hash mapping ───────────────────────────────────────────────────
+// Keeps the open view in location.hash so a refresh (or back/forward) lands on
+// the same screen instead of always resetting to the sessions list.
+function viewToHash(view) {
+  if (!view) return '#/';
+  if (view.type === 'single') return `#/session/${view.id}`;
+  if (view.type === 'trends') return '#/trends';
+  return `#/merged/${(view.selectedIds || []).join(',')}`;
+}
+
+function parseHash(hash, sessions) {
+  const h = (hash || '').replace(/^#\/?/, '');
+  if (h === 'trends') return { type: 'trends' };
+  const single = h.match(/^session\/(.+)$/);
+  if (single) return sessions.some(s => s.id === single[1]) ? { type: 'single', id: single[1] } : null;
+  const merged = h.match(/^merged(?:\/(.*))?$/);
+  if (merged) {
+    const ids = (merged[1] || '').split(',').filter(id => sessions.some(s => s.id === id));
+    return { type: 'merged', selectedIds: ids.length ? ids : sessions.map(s => s.id) };
+  }
+  return null;
+}
+
 export default function App() {
   const [sessions, setSessions] = useState([]);
   const [ready, setReady] = useState(false); // becomes true once IndexedDB load finishes
@@ -68,11 +92,40 @@ export default function App() {
         console.error('Startup load failed', err);
         if (!cancelled) setError('Failed to load saved sessions: ' + err.message);
       } finally {
-        if (!cancelled) { setSessions(loadSessions()); setReady(true); }
+        if (!cancelled) {
+          const loaded = loadSessions();
+          setSessions(loaded);
+          // Deep-link: restore the view encoded in the URL hash (if any).
+          const initial = parseHash(location.hash, loaded);
+          if (initial) setView(initial);
+          setReady(true);
+        }
       }
     })();
     return () => { cancelled = true; };
   }, []);
+
+  // Keep the URL hash in sync with the open view (refresh-safe deep links).
+  useEffect(() => {
+    if (!ready) return;
+    const target = viewToHash(view);
+    if (location.hash !== target) location.hash = target;
+  }, [view, ready]);
+
+  // Respond to back/forward and hand-edited hashes. The functional setView
+  // compares against the current view so the echo from our own sync effect
+  // doesn't trigger a pointless re-render.
+  useEffect(() => {
+    if (!ready) return;
+    function onHashChange() {
+      setView(prev => {
+        const next = parseHash(location.hash, loadSessions());
+        return viewToHash(next) === viewToHash(prev) ? prev : next;
+      });
+    }
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, [ready]);
 
   function refresh() {
     setSessions(loadSessions());
@@ -174,6 +227,58 @@ export default function App() {
     if (view?.id === id) setView(null);
   }
 
+  // Download every stored session (incl. raw CSVs) as one JSON backup file.
+  async function handleExportBackup() {
+    try {
+      const backup = await exportAllSessions();
+      downloadFile(`poker-dashboard-backup-${toLocalDateStr()}.json`, JSON.stringify(backup), 'application/json');
+    } catch (err) {
+      console.error(err);
+      setError('Backup failed: ' + err.message);
+    }
+  }
+
+  // Restore sessions from a backup file. Already-present sessions are skipped.
+  async function handleImportBackup(file) {
+    if (!file) return;
+    setError(null);
+    try {
+      const text = await readFileText(file);
+      const { imported, skipped } = await importSessions(JSON.parse(text));
+      refresh();
+      if (!imported) setError(`No new sessions in that backup (${skipped} already present).`);
+    } catch (err) {
+      console.error(err);
+      setError('Restore failed: ' + err.message);
+    }
+  }
+
+  // Derived data for the open dashboard view. mergeSessions tags/re-keys the
+  // stats it's given, so it must run on fresh clones — memoised so that clone +
+  // merge only reruns when the inputs change, not on every App re-render (e.g.
+  // while the upload queue or error banner updates).
+  const viewData = useMemo(() => {
+    if (!view || view.type === 'trends') return null;
+    const currentSessions = sessions.map(s => structuredClone(s));
+    let data, label, selectedIds, viewerNames;
+    if (view.type === 'single') {
+      const session = currentSessions.find(s => s.id === view.id);
+      if (!session) return null;
+      data = mergeSessions([session], playerConfig);
+      label = session.fileName;
+      selectedIds = [view.id];
+      viewerNames = data ? resolveViewerNames([session], data, playerConfig) : [];
+    } else {
+      selectedIds = view.selectedIds && view.selectedIds.length > 0 ? view.selectedIds : currentSessions.map(s => s.id);
+      const sessionsToMerge = currentSessions.filter(s => selectedIds.includes(s.id));
+      data = mergeSessions(sessionsToMerge, playerConfig);
+      label = `${selectedIds.length} of ${currentSessions.length} sessions merged`;
+      viewerNames = data ? resolveViewerNames(sessionsToMerge, data, playerConfig) : [];
+    }
+    if (!data) return null;
+    return { data, label, selectedIds, viewerNames, currentSessions };
+  }, [view, sessions, playerConfig]);
+
   const pendingUpload = pendingQueue[0] || null;
   const modal = pendingUpload && (
     <ViewerPickerModal
@@ -211,12 +316,11 @@ export default function App() {
   const ViewFallback = <div className="loading-screen">Loading…</div>;
 
   if (view?.type === 'trends') {
-    const currentSessions = loadSessions();
     return (
       <div className="app">
         <ErrorBoundary key="trends" fallback={viewFallback}>
           <Suspense fallback={ViewFallback}>
-            <TrendsView sessions={currentSessions} onBack={() => setView(null)} playerConfig={playerConfig} />
+            <TrendsView sessions={sessions} onBack={() => setView(null)} playerConfig={playerConfig} />
           </Suspense>
         </ErrorBoundary>
         {modal}
@@ -225,23 +329,9 @@ export default function App() {
   }
 
   if (view) {
-    const currentSessions = loadSessions();
-    let data, label, selectedIds, viewerNames;
-    if (view.type === 'single') {
-      const session = currentSessions.find(s => s.id === view.id);
-      if (!session) { setView(null); return null; }
-      data = mergeSessions([session], playerConfig);
-      label = session.fileName;
-      selectedIds = [view.id];
-      viewerNames = resolveViewerNames([session], data, playerConfig);
-    } else {
-      selectedIds = view.selectedIds && view.selectedIds.length > 0 ? view.selectedIds : currentSessions.map(s => s.id);
-      const sessionsToMerge = currentSessions.filter(s => selectedIds.includes(s.id));
-      data = mergeSessions(sessionsToMerge, playerConfig);
-      label = `${selectedIds.length} of ${currentSessions.length} sessions merged`;
-      viewerNames = resolveViewerNames(sessionsToMerge, data, playerConfig);
-    }
-    if (!data) { setView(null); return null; }
+    // Session(s) for this view no longer exist (e.g. just deleted) — bail home.
+    if (!viewData) { setView(null); return null; }
+    const { data, label, selectedIds, viewerNames, currentSessions } = viewData;
 
     return (
       <div className="app">
@@ -281,6 +371,8 @@ export default function App() {
           onViewTrends={() => setView({ type: 'trends' })}
           onDelete={handleDelete}
           onNewFiles={handleNewFiles}
+          onExportBackup={handleExportBackup}
+          onImportBackup={handleImportBackup}
           error={error}
           playerConfig={playerConfig}
           onPlayerConfigChange={handlePlayerConfigChange}

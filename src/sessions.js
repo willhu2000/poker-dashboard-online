@@ -21,13 +21,19 @@ const KEY = 'poker-sessions'; // legacy localStorage key (data is migrated into 
 //       showdown (multiway co-losers were previously skipped).
 //   v8: fix head-to-head symmetry — only record a result when exactly one of
 //       the pair won; co-losers in multiway pots no longer record mutual losses.
+//   v9: action logs capture `Uncalled bet returned` rows (`return` entries) so
+//       the replayer's pot/stack math is right on fold-outs; luckiness no longer
+//       counts AQs/AJs as premium for showdown cards (matches the glossary).
+//  v10: hand-history entries carry exact per-hand `net` chips (rebuy-proof
+//       profit timeline); bad beats / suck-outs record per-street lead
+//       (`aheadOn`/`behindOn`, kicker-aware); dead `potsWon` field dropped.
 //
 // Sessions that carry a `rawLog` self-heal on load (initSessions re-runs the
 // parser/analyser via migrateRecords), so they NEVER need a manual re-upload
 // again. Only legacy sessions saved without a rawLog can't auto-upgrade — those
 // are what hasOutdatedSessions() flags. (Split fields are still back-filled from
 // stored action logs for them too; see backfillSplitFields.)
-export const STATS_SCHEMA_VERSION = 8;
+export const STATS_SCHEMA_VERSION = 10;
 
 // ── In-memory session cache ───────────────────────────────────────────────────
 // IndexedDB is async, but the rest of the app expects synchronous reads. We keep
@@ -194,6 +200,52 @@ export async function clearAllSessions() {
   else localStorage.removeItem(KEY);
 }
 
+// Full backup of every stored session — read back from IndexedDB so it
+// includes each session's rawLog (the in-memory cache is lite). The returned
+// object is JSON-ready; importSessions accepts it back.
+export async function exportAllSessions() {
+  let records;
+  if (usingIDB) {
+    try { records = await idbGetAll(); }
+    catch (e) { console.error('Backup read failed, exporting cache only', e); records = loadSessions(); }
+  } else {
+    records = loadSessions();
+  }
+  records.sort(byNewest);
+  return {
+    app: 'poker-dashboard-backup',
+    schemaVersion: STATS_SCHEMA_VERSION,
+    exportedAt: new Date().toISOString(),
+    sessions: records,
+  };
+}
+
+// Import sessions from a backup object (or a bare array of session records).
+// Skips records already present (matched by id or contentHash), self-heals
+// old-schema records that carry a rawLog, and persists the rest.
+// Returns { imported, skipped }.
+export async function importSessions(backup) {
+  const list = Array.isArray(backup) ? backup : backup?.sessions;
+  if (!Array.isArray(list)) throw new Error('not a poker-dashboard backup file');
+  const existingIds = new Set(cache.map(s => s.id));
+  const existingHashes = new Set(cache.map(s => s.contentHash).filter(Boolean));
+  const fresh = [];
+  for (const s of list) {
+    if (!s || typeof s !== 'object' || !s.id || !s.stats) continue; // not a session record
+    if (existingIds.has(s.id) || (s.contentHash && existingHashes.has(s.contentHash))) continue;
+    fresh.push(s);
+  }
+  migrateRecords(fresh);
+  if (fresh.length) {
+    if (usingIDB) {
+      try { await idbPutMany(fresh); } catch (e) { console.error('Persist imported sessions failed', e); }
+    }
+    cache = [...fresh.map(lite), ...cache].sort(byNewest);
+    if (!usingIDB) writeLocalStorage();
+  }
+  return { imported: fresh.length, skipped: list.length - fresh.length };
+}
+
 // Reconstruct split-pot fields on a player's hand history for sessions saved
 // before split tracking existed. Uses the stored per-hand action logs (each
 // `collect` action carries the winner + amount), so older data gains split
@@ -303,7 +355,7 @@ export function mergeSessions(sessions, playerConfig = null) {
           netChips: 0, buyIns: 0, cashOut: 0, effectiveCashOut: 0,
           streetActions: { preflop: 0, flop: 0, turn: 0, river: 0 },
           premiumHandsShown: 0, allHandsShown: 0,
-          handsWon: 0, handsSplit: 0, potsWon: 0,
+          handsWon: 0, handsSplit: 0,
           posStats: emptyPosStats(),
           sawFlopHands: 0, wtsdHands: 0, wsdHands: 0,
           threeBetOpp: 0, threeBets: 0, cbetOpp: 0, cbets: 0,

@@ -1,24 +1,49 @@
+import { useState } from 'react';
+import { SortTh } from './cardUI.jsx';
+
+// Sortable columns: [key, label]. '#' (rank) and Style aren't sortable.
+const COLS = [
+  ['handsDealt', 'Hands'],
+  ['netChips', 'Net Chips'],
+  ['vpip', 'VPIP'],
+  ['pfr', 'PFR'],
+  ['preflopFoldPct', 'Fold%'],
+  ['af', 'AF'],
+  ['winRate', 'Win%'],
+  ['luckiness', 'Luck†'],
+];
+
 export default function Leaderboard({ players, onSelect, selected }) {
+  const [sortCol, setSortCol] = useState('netChips');
+  const [sortDir, setSortDir] = useState('desc');
+
+  function handleSort(col) {
+    if (sortCol === col) setSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
+    else { setSortCol(col); setSortDir(col === 'name' ? 'asc' : 'desc'); }
+  }
+
+  const sorted = [...players].sort((a, b) => {
+    const cmp = sortCol === 'name'
+      ? a.name.localeCompare(b.name)
+      : (a[sortCol] ?? 0) - (b[sortCol] ?? 0);
+    return sortDir === 'asc' ? cmp : -cmp;
+  });
+
   return (
     <table className="lb-table">
       <thead>
         <tr>
           <th>#</th>
-          <th>Player</th>
-          <th>Hands</th>
-          <th>Net Chips</th>
-          <th>VPIP</th>
-          <th>PFR</th>
-          <th>Fold%</th>
-          <th>AF</th>
-          <th>Win%</th>
-          <th>Luck†</th>
+          <SortTh col="name" sortCol={sortCol} sortDir={sortDir} onSort={handleSort}>Player</SortTh>
+          {COLS.map(([key, label]) => (
+            <SortTh key={key} col={key} sortCol={sortCol} sortDir={sortDir} onSort={handleSort}>{label}</SortTh>
+          ))}
           <th>Style</th>
         </tr>
       </thead>
       <tbody>
-        {players.map((p, i) => {
-          const tight = p.vpip < 25;
+        {sorted.map((p, i) => {
+          const tight = p.vpip < 20; // matches the glossary + PlayerDetail style tags
           const loose = p.vpip > 50;
           const agg = p.af > 2;
 

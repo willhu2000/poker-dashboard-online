@@ -1,53 +1,29 @@
 import { useState } from 'react';
 import { bestHand } from '../handEval.js';
+import { classifyHand } from '../parser.js';
+import { chipsToDollars } from '../playerConfig.js';
+import { fmtDate, overtakenStreet } from '../format.js';
 import CoachingReport from './CoachingReport.jsx';
 import HandReplayer from './HandReplayer.jsx';
+import ChipTimeline from './ChipTimeline.jsx';
+import RangeGrid from './RangeGrid.jsx';
+import AdvancedStats from './AdvancedStats.jsx';
+import { CardBadge, BoardCards, ActionLog, SortTh, BigPotCard } from './cardUI.jsx';
 import {
   RadarChart, Radar, PolarGrid, PolarAngleAxis, ResponsiveContainer,
   PieChart, Pie, Cell, Tooltip, Legend,
-  LineChart, Line, XAxis, YAxis, CartesianGrid, ReferenceLine,
 } from 'recharts';
 import { PLAYER_COLORS } from '../colors.js';
-const RANKS_DESC = ['A','K','Q','J','T','9','8','7','6','5','4','3','2'];
 
-function fmtDate(iso) {
-  if (!iso) return '—';
-  const [y, m, d] = iso.split('-');
-  return `${m}-${d}-${y}`;
-}
-
-// ── Hand category label ───────────────────────────────────────────────────────
-function categoryLabel(c1, c2) {
-  if (!c1 || !c2) return '—';
-  const RANK_ORDER = ['2','3','4','5','6','7','8','9','10','J','Q','K','A'];
-  const r1 = RANK_ORDER.indexOf(c1.rank);
-  const r2 = RANK_ORDER.indexOf(c2.rank);
-  const hi = Math.max(r1, r2), lo = Math.min(r1, r2);
-  const suited = c1.suit === c2.suit && c1.suit !== '?';
-  const paired = r1 === r2;
-  const gap = hi - lo;
-  if (paired) {
-    if (hi >= 12) return 'Premium Pair (AA/KK)';
-    if (hi >= 10) return 'Strong Pair (QQ/JJ)';
-    if (hi >= 7)  return 'Medium Pair (TT-88)';
-    if (hi >= 4)  return 'Small Pair (77-55)';
-    return 'Micro Pair (44-22)';
-  }
-  if (hi === 12 && lo === 11) return suited ? 'Premium (AKs)' : 'Premium (AKo)';
-  if (hi === 12 && lo >= 10)  return suited ? 'Strong Ace (AQs/AJs)' : 'Strong Ace (AQo/AJo)';
-  if (hi === 12 && lo >= 7)   return suited ? 'Medium Ace suited' : 'Medium Ace offsuit';
-  if (hi === 12)               return suited ? 'Weak Ace suited' : 'Weak Ace offsuit';
-  if (hi >= 10 && gap <= 2)   return suited ? 'Broadway suited' : 'Broadway offsuit';
-  if (gap === 1 && lo >= 5)   return suited ? 'Suited Connector' : 'One-Gap Connector';
-  if (gap <= 2 && lo >= 4 && suited) return 'Suited Connector';
-  return 'Speculative / Trash';
-}
+// ── Hand category label (classifyHand with a '—' placeholder) ─────────────────
+const categoryLabel = (c1, c2) => (c1 && c2 ? classifyHand(c1, c2) : '—');
 
 // ── Premium hand detection ────────────────────────────────────────────────────
+const RANK_VAL = { '2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,'J':11,'Q':12,'K':13,'A':14 };
+
 function isPremiumHand(c1, c2) {
   if (!c1 || !c2) return false;
-  const RANK_V = { '2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,'J':11,'Q':12,'K':13,'A':14 };
-  const r1 = RANK_V[c1.rank] || 0, r2 = RANK_V[c2.rank] || 0;
+  const r1 = RANK_VAL[c1.rank] || 0, r2 = RANK_VAL[c2.rank] || 0;
   // AA, KK, QQ
   if (r1 === r2 && r1 >= 12) return true;
   // AKs
@@ -57,15 +33,12 @@ function isPremiumHand(c1, c2) {
 
 function premiumLabel(c1, c2) {
   if (!c1 || !c2) return '';
-  const RANK_V = { '2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,'J':11,'Q':12,'K':13,'A':14 };
-  const r1 = RANK_V[c1.rank] || 0, r2 = RANK_V[c2.rank] || 0;
+  const r1 = RANK_VAL[c1.rank] || 0, r2 = RANK_VAL[c2.rank] || 0;
   if (r1 === r2) return c1.rank + c1.rank;
   return 'AKs';
 }
 
 // ── Hand strength for sort ────────────────────────────────────────────────────
-const RANK_VAL = { '2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,'J':11,'Q':12,'K':13,'A':14 };
-
 function handStrength(c1, c2) {
   if (!c1 || !c2) return -1;
   const r1 = RANK_VAL[c1.rank] || 0;
@@ -111,8 +84,8 @@ function parseCardQuery(input) {
     if (dd && _RMAP[dd[1]]) { const r = _RMAP[dd[1]]; cards.push({ rank:r,suit:null },{ rank:r,suit:null }); i++; continue; }
     // "1010"
     if (t === '1010') { cards.push({ rank:'10',suit:null },{ rank:'10',suit:null }); i++; continue; }
-    // two-rank compact: "ak","qj","aks"
-    const tr = t.match(/^([akqjt2-9])(10|[akqjt2-9])[so]?$/);
+    // two-rank compact: "ak","qj","aks","10j"
+    const tr = t.match(/^(10|[akqjt2-9])(10|[akqjt2-9])[so]?$/);
     if (tr && _RMAP[tr[1]] && _RMAP[tr[2]]) { cards.push({ rank:_RMAP[tr[1]],suit:null },{ rank:_RMAP[tr[2]],suit:null }); i++; continue; }
     i++;
   }
@@ -172,242 +145,6 @@ function matchesSearch(h, query, col) {
   }
 }
 
-// ── Card badge ────────────────────────────────────────────────────────────────
-function CardBadge({ card }) {
-  if (!card) return null;
-  const suitMap = { s: '♠', h: '♥', d: '♦', c: '♣', '?': '?' };
-  return (
-    <span className={`card-badge ${card.suit}`}>
-      {card.rank}{suitMap[card.suit] || card.suit}
-    </span>
-  );
-}
-
-// ── Board cards with flop/turn/river separators ───────────────────────────────
-function BoardCards({ board }) {
-  if (!board?.length) return <span style={{ color:'var(--muted)' }}>—</span>;
-  return (
-    <div className="board-cards">
-      {board.slice(0,3).map((c,i) => <CardBadge key={i} card={c}/>)}
-      {board.length>3&&<><span className="board-sep">|</span><CardBadge card={board[3]}/></>}
-      {board.length>4&&<><span className="board-sep">|</span><CardBadge card={board[4]}/></>}
-    </div>
-  );
-}
-
-// ── Action log ────────────────────────────────────────────────────────────────
-const ACT_TEXT = {
-  'post-sb': a=>`posts small blind ${a.amount?.toLocaleString()??''}`,
-  'post-bb': a=>`posts big blind ${a.amount?.toLocaleString()??''}`,
-  'fold': ()=>'folds',
-  'call': a=>`calls ${a.amount?.toLocaleString()??''}`,
-  'raise': a=>`raises to ${a.amount?.toLocaleString()??''}`,
-  'bet': a=>`bets ${a.amount?.toLocaleString()??''}`,
-  'check': ()=>'checks',
-  'show': ()=>'shows hand',
-  'collect': a=>`collects ${a.amount?.toLocaleString()??''}`,
-};
-
-function ActionLog({ log }) {
-  if (!log?.length) return <p style={{color:'var(--muted)',fontSize:'0.78rem'}}>No action data (re-upload to capture).</p>;
-  const groups = [];
-  let cur = { street:'preflop', board:null, actions:[] };
-  for (const ev of log) {
-    if (ev.type==='street') { groups.push(cur); cur={street:ev.street,board:ev.board,actions:[]}; }
-    else if (ev.type==='action') cur.actions.push(ev);
-  }
-  groups.push(cur);
-  return (
-    <div className="action-log">
-      {groups.filter(g=>g.actions.length>0).map((g,gi)=>(
-        <div key={gi} className="al-group">
-          <div className="al-street-label">
-            {g.street.toUpperCase()}
-            {g.board?.length>0&&<span className="al-board">{g.board.map((c,i)=><CardBadge key={i} card={c}/>)}</span>}
-          </div>
-          {g.actions.map((act,ai)=>(
-            <div key={ai} className="al-action">
-              <span className="al-player">{act.player}</span>
-              <span className="al-verb">{actionVerb(act)}</span>
-            </div>
-          ))}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// Render an action's verb, expanding a "show" into "shows ♠♥" with the cards.
-function actionVerb(ev) {
-  const showCards = ev.action === 'show' && (ev.cards || []).filter(c => c && c.rank);
-  if (showCards && showCards.length) {
-    return <>shows {showCards.map((c, i) => <CardBadge key={i} card={c} />)}</>;
-  }
-  return ACT_TEXT[ev.action]?.(ev) ?? ev.action;
-}
-
-// Step-through poker-table replay is in HandReplayer.jsx (shared with CoachingReport and SessionsHome).
-
-// Sortable table-header cell. Hoisted to module scope — defining it inside the
-// component would create a fresh component type on every render.
-function SortTh({ col, children, style, sortCol, sortDir, onSort }) {
-  const active = sortCol === col;
-  return (
-    <th onClick={() => onSort(col)} className={`sortable${active ? ' sort-active' : ''}`} style={style}>
-      {children} <span style={{ opacity: 0.5, fontSize: '0.7em' }}>{active ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}</span>
-    </th>
-  );
-}
-
-// A clickable "biggest pot" row that expands to show the hand's play-by-play.
-function BigPotCard({ kind, rank, h, isMerged, amountNode, extraDetails, expanded, onToggle, log, onReplay }) {
-  return (
-    <div
-      className={`big-pot-card ${kind}${expanded ? ' expanded' : ''}`}
-      onClick={onToggle}
-      role="button"
-      tabIndex={0}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(); } }}
-    >
-      <div className="bp-main">
-        {rank != null && <div className="bp-rank">#{rank}</div>}
-        <div className="bp-body">
-          <div className="bp-header">
-            <span className="bp-num">Hand #{h.num}{isMerged && h.sessionDate && <span style={{ color: 'var(--muted)', fontSize: '0.72rem', marginLeft: 6 }}>({fmtDate(h.sessionDate)})</span>}</span>
-            {amountNode}
-          </div>
-          <div className="bp-details">
-            {h.c1 && h.c2 ? <><CardBadge card={h.c1} /><CardBadge card={h.c2} /></> : <span className="mucked-cards">?? ??</span>}
-            {h.board?.length > 0 && <span style={{ marginLeft: 8 }}><BoardCards board={h.board} /></span>}
-            {h.myHandName && <span style={{ color: 'var(--muted)', fontSize: '0.78rem', marginLeft: 8 }}>{h.myHandName}</span>}
-            {extraDetails}
-          </div>
-        </div>
-        <span className="bp-chevron">{expanded ? '▾' : '▸'}</span>
-      </div>
-      {expanded && (
-        <div className="bp-runout" onClick={(e) => e.stopPropagation()}>
-          <div className="bp-runout-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            Play by Play
-            {onReplay && log?.length > 0 && <button className="replay-btn" onClick={onReplay}>▶ Replay</button>}
-          </div>
-          <ActionLog log={log} />
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Range grid ────────────────────────────────────────────────────────────────
-function handKey(c1, c2) {
-  const toR = r => r === '10' ? 'T' : r;
-  const r1 = toR(c1.rank), r2 = toR(c2.rank);
-  const i1 = RANKS_DESC.indexOf(r1), i2 = RANKS_DESC.indexOf(r2);
-  if (i1 === i2) return r1 + r2;
-  const suited = c1.suit === c2.suit && c1.suit !== '?';
-  const [hi, lo] = i1 < i2 ? [r1, r2] : [r2, r1];
-  return hi + lo + (suited ? 's' : 'o');
-}
-
-// Quantized color stops: blue → purple → magenta → hot pink
-const RANGE_STOPS = [
-  [30, 80, 220],   // 0: blue
-  [70, 60, 200],   // 1
-  [110, 50, 190],  // 2
-  [145, 40, 180],  // 3
-  [175, 35, 165],  // 4
-  [200, 30, 150],  // 5
-  [220, 28, 130],  // 6
-  [235, 30, 110],  // 7
-  [245, 30, 90],   // 8
-  [255, 40, 100],  // 9: hot pink
-];
-
-function cellBg(count, maxCount) {
-  if (!count || !maxCount) return '#1e2035';
-  if (maxCount <= 10) {
-    // Quantized: pick a distinct stop for each count
-    const idx = Math.min(count, RANGE_STOPS.length) - 1;
-    const [r, g, b] = RANGE_STOPS[Math.round(idx * (RANGE_STOPS.length - 1) / Math.max(maxCount - 1, 1))];
-    return `rgb(${r}, ${g}, ${b})`;
-  }
-  // Smooth interpolation for larger counts
-  const t = Math.sqrt(count / maxCount);
-  const r = Math.round(30 + t * (255 - 30));
-  const g = Math.round(80 + t * (40 - 80));
-  const b = Math.round(220 + t * (100 - 220));
-  return `rgb(${r}, ${g}, ${b})`;
-}
-
-function RangeGrid({ rangeHands }) {
-  // Click a "times played" key to highlight only the hands played that many
-  // times (and dim the rest); click again to clear. Mirrors the pie's toggle.
-  const [selectedCount, setSelectedCount] = useState(null);
-  const toggleCount = (n) => setSelectedCount(prev => (prev === n ? null : n));
-
-  const freq = {};
-  for (const { c1, c2 } of rangeHands) {
-    if (!c1 || !c2) continue;
-    const k = handKey(c1, c2);
-    freq[k] = (freq[k] || 0) + 1;
-  }
-  const maxCount = Math.max(1, ...Object.values(freq));
-  return (
-    <div className="range-grid-wrap">
-      <div className="range-grid">
-        {RANKS_DESC.map((rowR, i) => RANKS_DESC.map((colR, j) => {
-          const key = i === j ? rowR + colR : i < j ? rowR + colR + 's' : colR + rowR + 'o';
-          const count = freq[key] || 0;
-          const label = i === j ? rowR + rowR : i < j ? rowR + colR + 's' : colR + rowR + 'o';
-          const selecting = selectedCount != null;
-          const isMatch = selecting && count === selectedCount;
-          let opacity = count > 0 ? 0.35 + 0.65 * Math.sqrt(count / maxCount) : undefined;
-          if (selecting && !isMatch) opacity = (opacity ?? 1) * 0.15;     // dim non-matching
-          else if (isMatch) opacity = count > 0 ? Math.max(opacity, 0.92) : 0.85; // emphasize match
-          return (
-            <div key={key} title={`${label}: ${count} hand${count !== 1 ? 's' : ''}`}
-              className={`range-cell${count > 0 ? ' played' : ''}${isMatch ? ' rc-match' : ''}`}
-              style={{ background: cellBg(count, maxCount), opacity }}>
-              {label}
-            </div>
-          );
-        }))}
-      </div>
-      <div className="range-legend">
-        {maxCount <= 10 ? (
-          <div className="range-legend-steps">
-            {Array.from({ length: maxCount + 1 }, (_, n) => (
-              <div
-                key={n}
-                className={`range-step clickable${selectedCount === n ? ' selected' : ''}`}
-                onClick={() => toggleCount(n)}
-                role="button" tabIndex={0}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleCount(n); } }}
-                title={`Highlight hands played ${n} time${n !== 1 ? 's' : ''}`}
-              >
-                <div className="range-swatch" style={{ background: n === 0 ? '#1e2035' : cellBg(n, maxCount) }} />
-                <span>{n}</span>
-              </div>
-            ))}
-            <span className="range-legend-caption">times played</span>
-          </div>
-        ) : (
-          <div className="range-legend-bar">
-            <span className="range-legend-label">0</span>
-            <div className="range-legend-gradient" />
-            <span className="range-legend-label">{maxCount}</span>
-            <span className="range-legend-caption">times played</span>
-          </div>
-        )}
-        <p className="range-legend-help">
-          {maxCount <= 10 && <>Click a count to highlight those hands · </>}
-          Suited upper-right · pairs diagonal · offsuit lower-left
-        </p>
-      </div>
-    </div>
-  );
-}
-
 // ── Radar info ────────────────────────────────────────────────────────────────
 const RADAR_AXES = [
   { name: 'VPIP',       desc: 'How often you voluntarily put money in preflop (call or raise). Higher = looser hand selection.',                        scale: 'Direct %. 50% VPIP → 50 on chart.' },
@@ -459,8 +196,21 @@ const SUCKOUT_NONE = [
   'A clean conscience — you haven\'t stolen any pots from someone who deserved them.',
 ];
 
+// Timing line for a bad beat: was the loser ever actually in front?
+function BeatTiming({ aheadOn }) {
+  if (!aheadOn) return null; // pre-v10 data
+  const lostOn = overtakenStreet(aheadOn);
+  return (
+    <div className="bb-board" style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
+      {aheadOn.length
+        ? <>📉 Ahead on the {aheadOn.join(' & ')}{lostOn ? ` — beaten on the ${lostOn}` : ''}</>
+        : <>⚖️ Never actually ahead after the flop — closer to a cooler than a bad beat</>}
+    </div>
+  );
+}
+
 // ── Simple View stats ─────────────────────────────────────────────────────────
-function SimpleStats({ player: p, biggestWins, biggestSplits, biggestLosses, badBeats, suckOuts, coolers }) {
+function SimpleStats({ player: p, netDollars, biggestWins, biggestSplits, biggestLosses, badBeats, suckOuts, coolers }) {
   const chipsPerHand = p.handsDealt > 0 ? (p.netChips / p.handsDealt).toFixed(1) : 0;
   const showdownWins = (p.handsHistory || []).filter(h => h.wasShown && h.won).length;
   const showdownTotal = (p.handsHistory || []).filter(h => h.wasShown).length;
@@ -478,6 +228,7 @@ function SimpleStats({ player: p, biggestWins, biggestSplits, biggestLosses, bad
           <div className="ds-value" style={{ color: p.netChips >= 0 ? 'var(--win)' : 'var(--lose)' }}>
             {p.netChips >= 0 ? '+' : ''}{p.netChips}
           </div>
+          {netDollars && <div style={{ color: 'var(--muted)', fontSize: '0.72rem', marginTop: 2 }}>{netDollars}</div>}
         </div>
         <div className="detail-stat"><div className="ds-label">Win Rate</div><div className="ds-value">{p.winRate}%</div></div>
         <div className="detail-stat"><div className="ds-label">VPIP</div><div className="ds-value">{p.vpip}%</div></div>
@@ -545,252 +296,6 @@ function SimpleStats({ player: p, biggestWins, biggestSplits, biggestLosses, bad
   );
 }
 
-// ── Advanced stats ────────────────────────────────────────────────────────────
-const POS_ORDER = ['BTN', 'SB', 'BB', 'LP', 'MP', 'EP'];
-const POS_LABEL = { BTN: 'Button', SB: 'Small Blind', BB: 'Big Blind', LP: 'Late (CO)', MP: 'Middle', EP: 'Early' };
-const pctOf = (num, den) => (den > 0 ? +(num / den * 100).toFixed(1) : null);
-const fmtPct = (v) => (v == null ? '—' : `${v}%`);
-
-function modeBB(bbCounts) {
-  let best = null, bestCnt = -1;
-  for (const [size, cnt] of Object.entries(bbCounts || {})) {
-    if (cnt > bestCnt) { bestCnt = cnt; best = +size; }
-  }
-  return best;
-}
-
-function AdvTile({ label, value, sub, color }) {
-  return (
-    <div className="adv-tile">
-      <div className="adv-tile-label">{label}</div>
-      <div className="adv-tile-value" style={color ? { color } : undefined}>{value}</div>
-      {sub && <div className="adv-tile-sub">{sub}</div>}
-    </div>
-  );
-}
-
-function AdvancedStats({ player: p, isMerged = false, getLog, onReplay }) {
-  const [openOpp, setOpenOpp] = useState(null); // expanded head-to-head opponent
-  const [openHand, setOpenHand] = useState(null); // expanded H2H hand key
-  const posRows = POS_ORDER
-    .map(k => ({ k, ...(p.posStats?.[k] || { h: 0, v: 0, p: 0, w: 0 }) }))
-    .filter(r => r.h > 0);
-  const wtsd = pctOf(p.wtsdHands, p.sawFlopHands);
-  const wsd = pctOf(p.wsdHands, p.wtsdHands);
-  const threeBet = pctOf(p.threeBets, p.threeBetOpp);
-  const cbet = pctOf(p.cbets, p.cbetOpp);
-  const bb = modeBB(p.bbCounts);
-  const bbPer100 = bb && p.handsDealt ? +((p.netChips / bb) / p.handsDealt * 100).toFixed(1) : null;
-  const h2h = Object.entries(p.vsOpponents || {})
-    .map(([name, r]) => ({ name, w: r.w || 0, l: r.l || 0, n: (r.w || 0) + (r.l || 0) }))
-    .filter(o => o.n > 0)
-    .sort((a, b) => b.n - a.n);
-
-  const hasAny = posRows.length || wtsd != null || threeBet != null || cbet != null || bbPer100 != null || h2h.length;
-  if (!hasAny) return null;
-
-  return (
-    <>
-      <div className="section-title" style={{ fontSize: '0.9rem', marginTop: 16 }}>
-        📐 Advanced Stats
-        <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: '0.78rem', marginLeft: 8 }}>
-          — positional play, showdown funnel, 3-bet/c-bet, head-to-head
-        </span>
-      </div>
-
-      <div className="adv-tiles">
-        <AdvTile label="bb / 100" value={bbPer100 == null ? '—' : `${bbPer100 >= 0 ? '+' : ''}${bbPer100}`}
-          color={bbPer100 == null ? undefined : (bbPer100 >= 0 ? 'var(--win)' : 'var(--lose)')}
-          sub={bb ? `big blind = ${bb}` : 'win rate'} />
-        <AdvTile label="WTSD" value={fmtPct(wtsd)} sub="went to showdown" />
-        <AdvTile label="W$SD" value={fmtPct(wsd)} sub="won at showdown" />
-        <AdvTile label="3-Bet" value={fmtPct(threeBet)} sub="preflop re-raise" />
-        <AdvTile label="C-Bet" value={fmtPct(cbet)} sub="flop, as aggressor" />
-      </div>
-
-      {posRows.length > 0 && (
-        <div style={{ overflowX: 'auto' }}>
-          <table className="adv-pos-table">
-            <thead>
-              <tr><th>Position</th><th>Hands</th><th>VPIP</th><th>PFR</th><th>Win %</th></tr>
-            </thead>
-            <tbody>
-              {posRows.map(r => (
-                <tr key={r.k}>
-                  <td><strong>{POS_LABEL[r.k]}</strong></td>
-                  <td>{r.h}</td>
-                  <td>{fmtPct(pctOf(r.v, r.h))}</td>
-                  <td>{fmtPct(pctOf(r.p, r.h))}</td>
-                  <td>{fmtPct(pctOf(r.w, r.h))}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {h2h.length > 0 && (
-        <div className="adv-h2h">
-          <div className="adv-h2h-label">
-            Head-to-head at showdown
-            <span style={{ textTransform: 'none', fontWeight: 400, marginLeft: 6 }}>— click an opponent to see the hands</span>
-          </div>
-          <div className="adv-h2h-list">
-            {h2h.map(o => (
-              <button
-                key={o.name}
-                className={`adv-h2h-item${openOpp === o.name ? ' active' : ''}`}
-                onClick={() => { setOpenOpp(x => (x === o.name ? null : o.name)); setOpenHand(null); }}
-              >
-                vs {o.name}: <span className="pos">{o.w}W</span>–<span className="neg">{o.l}L</span>
-                <span className="adv-h2h-chev">{openOpp === o.name ? ' ▾' : ' ▸'}</span>
-              </button>
-            ))}
-          </div>
-          {openOpp && (() => {
-            const hands = (p.handsHistory || []).filter(h =>
-              h.wasShown && (h.opponents || []).some(op => op.name === openOpp && op.c1));
-            if (!hands.length) return <p className="cr-empty" style={{ marginTop: 8 }}>No showdown hands recorded vs {openOpp}.</p>;
-            return (
-              <div className="big-pot-list" style={{ marginTop: 8 }}>
-                {hands.map((h, idx) => {
-                  const key = `h2h-${idx}`;
-                  const amt = (h.wonAmount ?? h.potSize).toLocaleString();
-                  const amountNode = h.isSplit
-                    ? <span className="bp-amount split">Split {amt}</span>
-                    : h.won ? <span className="bp-amount pos">Won {amt}</span>
-                      : <span className="bp-amount neg">Lost {h.potSize.toLocaleString()}</span>;
-                  const oc = (h.opponents || []).find(op => op.name === openOpp);
-                  return (
-                    <BigPotCard
-                      key={key} kind={h.isSplit ? 'split' : h.won ? 'win' : 'loss'} rank={null} h={h} isMerged={isMerged}
-                      amountNode={amountNode}
-                      extraDetails={oc && oc.c1 && <span style={{ color: 'var(--muted)', fontSize: '0.72rem', marginLeft: 8, display: 'inline-flex', alignItems: 'center', gap: 2 }}>{openOpp}: <CardBadge card={oc.c1} /><CardBadge card={oc.c2} /></span>}
-                      expanded={openHand === key} onToggle={() => setOpenHand(x => (x === key ? null : key))}
-                      log={getLog ? getLog(h) : []} onReplay={onReplay ? () => onReplay(h) : null}
-                    />
-                  );
-                })}
-              </div>
-            );
-          })()}
-        </div>
-      )}
-    </>
-  );
-}
-
-// ── Chip count / net profit over time ─────────────────────────────────────────
-// Builds a chronological series of the player's stack entering each hand.
-//   mode 'stack': the table stack, which resets to 0 between sessions (each
-//     log-out / cash-out) — every session reads as its own segment.
-//   mode 'net':   cumulative profit carried across sessions (no reset). Per
-//     session, profit = stack − the first stack seen that session; the running
-//     total carries forward. (Mid-session rebuys can distort this.)
-function buildChipTimeline(handsHistory, mode) {
-  const hands = handsHistory
-    .filter(h => h.stack != null)
-    .slice()
-    .sort((a, b) =>
-      ((a.sessionDate || '').localeCompare(b.sessionDate || '')) ||
-      // Keep same-date sessions grouped (genId isn't chronological, but this
-      // stops two same-day sessions from interleaving by hand number).
-      String(a.sessionId ?? '').localeCompare(String(b.sessionId ?? '')) ||
-      (a.num - b.num));
-  if (!hands.length) return [];
-
-  const points = [];
-  let i = 0;
-
-  if (mode === 'net') {
-    let prevSession = null;
-    let carried = 0;     // net banked from completed prior sessions
-    let baseline = 0;    // first stack of the current session
-    let sessionNet = 0;
-    for (const h of hands) {
-      const sid = h.sessionId ?? '_single';
-      if (sid !== prevSession) {
-        if (prevSession !== null) carried += sessionNet;
-        baseline = h.stack;
-        sessionNet = 0;
-      }
-      sessionNet = h.stack - baseline;
-      points.push({ i: i++, value: carried + sessionNet, kind: 'net', hand: h.num, sessionDate: h.sessionDate });
-      prevSession = sid;
-    }
-    return points;
-  }
-
-  let prevSession = null;
-  let prevDate = null;
-  for (const h of hands) {
-    const sid = h.sessionId ?? '_single';
-    if (prevSession !== null && sid !== prevSession) {
-      // Logged out of the previous session → drop to 0 before the next buy-in.
-      points.push({ i: i++, value: 0, reset: true, sessionDate: prevDate });
-    }
-    points.push({ i: i++, value: h.stack, hand: h.num, sessionDate: h.sessionDate });
-    prevSession = sid;
-    prevDate = h.sessionDate;
-  }
-  return points;
-}
-
-const ChipTip = ({ active, payload }) => {
-  if (!active || !payload?.length) return null;
-  const d = payload[0].payload;
-  if (d.reset) return <div className="custom-tooltip"><div>Cashed out — stack reset to 0</div></div>;
-  const v = d.value;
-  const headline = d.kind === 'net'
-    ? `${v >= 0 ? '+' : ''}${v.toLocaleString()} net`
-    : `${v.toLocaleString()} chips`;
-  return (
-    <div className="custom-tooltip">
-      <div className="label" style={d.kind === 'net' ? { color: v >= 0 ? 'var(--win)' : 'var(--lose)' } : undefined}>{headline}</div>
-      <div style={{ color: 'var(--muted)', fontSize: '0.75rem' }}>
-        Hand #{d.hand}{d.sessionDate ? ` · ${fmtDate(d.sessionDate)}` : ''}
-      </div>
-    </div>
-  );
-};
-
-function ChipTimeline({ handsHistory, isViewer = false }) {
-  const [mode, setMode] = useState('stack'); // 'stack' | 'net'
-  const data = buildChipTimeline(handsHistory, mode);
-  if (data.length < 2) return null;
-  const sessionCount = new Set(
-    handsHistory.filter(h => h.stack != null).map(h => h.sessionId ?? '_single')
-  ).size;
-
-  const who = isViewer ? 'your' : 'their';
-  const subtitle = mode === 'net'
-    ? `cumulative ${who} net profit (carries across sessions)`
-    : `${who} stack entering each hand${sessionCount > 1 ? ', resets to 0 between sessions' : ''}`;
-
-  return (
-    <div className="chip-timeline">
-      <div className="section-title" style={{ fontSize: '0.9rem', marginTop: 16, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        <span>📈 {mode === 'net' ? 'Net Profit Over Time' : 'Chip Count Over Time'}</span>
-        <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: '0.78rem' }}>— {subtitle}</span>
-        <span className="chip-mode-toggle" style={{ marginLeft: 'auto' }}>
-          <button className={mode === 'stack' ? 'active' : ''} onClick={() => setMode('stack')}>Stack</button>
-          <button className={mode === 'net' ? 'active' : ''} onClick={() => setMode('net')}>Net profit</button>
-        </span>
-      </div>
-      <ResponsiveContainer width="100%" height={240}>
-        <LineChart data={data} margin={{ top: 8, right: 12, left: -8, bottom: 6 }}>
-          <CartesianGrid stroke="#2e3350" strokeDasharray="3 3" vertical={false} />
-          <XAxis dataKey="i" tick={false} axisLine={{ stroke: '#2e3350' }} height={6} />
-          <YAxis tick={{ fill: '#7c82a0', fontSize: 11 }} />
-          <Tooltip content={<ChipTip />} />
-          <ReferenceLine y={0} stroke="#3a3f5c" strokeDasharray="4 4" />
-          <Line type="linear" dataKey="value" stroke={mode === 'net' ? '#00d4aa' : '#6c63ff'} strokeWidth={2} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} />
-        </LineChart>
-      </ResponsiveContainer>
-    </div>
-  );
-}
-
 // ── Main component ────────────────────────────────────────────────────────────
 export default function PlayerDetail({ player: p, isMerged = false, isViewer = false, handActionLogs = {}, onRename = null, sessions = [], playerConfig = null }) {
   const [showRadarInfo, setShowRadarInfo] = useState(false);
@@ -833,6 +338,7 @@ export default function PlayerDetail({ player: p, isMerged = false, isViewer = f
   });
 
   const tags = styleTag(p);
+  const netDollars = chipsToDollars(p.netChips, playerConfig);
 
   const radarData = [
     { subject: 'VPIP',       value: Math.min(p.vpip, 100) },
@@ -1001,6 +507,7 @@ export default function PlayerDetail({ player: p, isMerged = false, isViewer = f
             <div className="ds-value" style={{ color: p.netChips >= 0 ? 'var(--win)' : 'var(--lose)' }}>
               {p.netChips >= 0 ? '+' : ''}{p.netChips}
             </div>
+            {netDollars && <div style={{ color: 'var(--muted)', fontSize: '0.72rem', marginTop: 2 }}>{netDollars}</div>}
           </div>
           <div className="detail-stat"><div className="ds-label">VPIP</div><div className="ds-value">{p.vpip}%</div></div>
           <div className="detail-stat"><div className="ds-label">PFR</div><div className="ds-value">{p.pfr}%</div></div>
@@ -1014,7 +521,7 @@ export default function PlayerDetail({ player: p, isMerged = false, isViewer = f
           <div className="detail-stat"><div className="ds-label">Showdowns</div><div className="ds-value">{p.shownHands.length}</div></div>
         </div>
       ) : (
-        <SimpleStats player={p} biggestWins={biggestWins} biggestSplits={biggestSplits} biggestLosses={biggestLosses} badBeats={badBeats} suckOuts={suckOuts} coolers={coolers} />
+        <SimpleStats player={p} netDollars={netDollars} biggestWins={biggestWins} biggestSplits={biggestSplits} biggestLosses={biggestLosses} badBeats={badBeats} suckOuts={suckOuts} coolers={coolers} />
       )}
 
       {/* Chip count over time — available for any player (stacks are recorded
@@ -1144,7 +651,7 @@ export default function PlayerDetail({ player: p, isMerged = false, isViewer = f
                 </thead>
                 <tbody>
                   {[...categoryHands].reverse().map(h => (
-                    <tr key={h.num} className={h.won ? 'won' : ''}>
+                    <tr key={h.sessionId ? `${h.sessionId}-${h.num}` : h.num} className={h.won ? 'won' : ''}>
                       <td>#{h.num}</td>
                       {isMerged && <td style={{ color: 'var(--muted)', fontSize: '0.82rem' }}>{fmtDate(h.sessionDate)}</td>}
                       <td><CardBadge card={h.c1} /><CardBadge card={h.c2} /></td>
@@ -1298,6 +805,7 @@ export default function PlayerDetail({ player: p, isMerged = false, isViewer = f
           {suckOuts.map((so, i) => {
             const key = `suckout-${i}`;
             const expanded = expandedKeyHand === key;
+            const gotThereOn = overtakenStreet(so.behindOn);
             return (
             <div
               key={key}
@@ -1329,6 +837,11 @@ export default function PlayerDetail({ player: p, isMerged = false, isViewer = f
                 <div className="bb-board">
                   <span className="bb-board-label">Board: </span>
                   <BoardCards board={so.board} />
+                </div>
+              )}
+              {so.behindOn?.length > 0 && (
+                <div className="bb-board" style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
+                  🎯 Behind on the {so.behindOn.join(' & ')}{gotThereOn ? ` — got there on the ${gotThereOn}` : ''}
                 </div>
               )}
               {expanded && (
@@ -1396,6 +909,7 @@ export default function PlayerDetail({ player: p, isMerged = false, isViewer = f
                   <BoardCards board={bb.board} />
                 </div>
               )}
+              <BeatTiming aheadOn={bb.aheadOn} />
               {expanded && (
                 <div style={{marginTop:10}} onClick={(e) => e.stopPropagation()}>
                   <div style={{fontSize:'0.7rem',fontWeight:700,textTransform:'uppercase',color:'var(--muted)',marginBottom:4,display:'flex',alignItems:'center',gap:8}}>
