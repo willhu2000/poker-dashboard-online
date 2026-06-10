@@ -1731,6 +1731,8 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -0.02em; }
 
 /* ── Cooler Cards ───────────────────────────────────────────────────────────── */
 .cooler-card { border-color: rgba(108,99,255,0.25) !important; }
+.cooler-card.won  { background: rgba(0, 230, 118, 0.07); border-color: rgba(0, 230, 118, 0.3) !important; }
+.cooler-card.lost { background: rgba(255, 77, 109, 0.07); border-color: rgba(255, 77, 109, 0.3) !important; }
 .cooler-card .bb-vs { border-color: rgba(108,99,255,0.3); color: var(--accent); }
 .cooler-row { border-left: 3px solid var(--accent) !important; }
 .result-badge.cooler {

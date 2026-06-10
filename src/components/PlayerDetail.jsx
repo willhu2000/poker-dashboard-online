@@ -945,7 +945,7 @@ export default function PlayerDetail({ player: p, isMerged = false, isViewer = f
             return (
             <div
               key={key}
-              className={`bad-beat-card cooler-card${expanded ? ' expanded' : ''}`}
+              className={`bad-beat-card cooler-card${c.won ? ' won' : ' lost'}${expanded ? ' expanded' : ''}`}
               onClick={() => toggleKeyHand(key)}
               role="button" tabIndex={0}
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleKeyHand(key); } }}
