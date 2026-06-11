@@ -267,7 +267,7 @@ function SimpleStats({ player: p, netDollars, biggestWins, biggestSplits, bigges
           <span className="fun-icon">💸</span>
           <span className="fun-label">Biggest Pot Lost</span>
           <span className="fun-value" style={{ color: 'var(--lose)' }}>
-            {topLoss ? topLoss.potSize.toLocaleString() : '—'}
+            {topLoss ? (-topLoss.net).toLocaleString() : '—'}
             {topLoss?.myHandName && <span style={{ color: 'var(--muted)', fontSize: '0.72rem', marginLeft: 4 }}>({topLoss.myHandName})</span>}
           </span>
         </div>
@@ -386,9 +386,12 @@ export default function PlayerDetail({ player: p, isMerged = false, isViewer = f
     .filter(h => h.won && h.isSplit && takeHome(h) > 0)
     .sort((a, b) => takeHome(b) - takeHome(a))
     .slice(0, 5);
+  // Losses rank on chips actually lost (`net`), not pot size — a mucked
+  // showdown or a big fold never gets a "shows" line, so requiring shown
+  // cards hid the largest losses entirely.
   const biggestLosses = [...handsHistory]
-    .filter(h => h.wasShown && !h.won && h.potSize > 0)
-    .sort((a, b) => b.potSize - a.potSize)
+    .filter(h => !h.won && h.net < 0)
+    .sort((a, b) => a.net - b.net)
     .slice(0, 5);
   const premiumShowdowns = handsHistory
     .filter(h => (h.wasShown || h.won) && isPremiumHand(h.c1, h.c2));
@@ -738,7 +741,7 @@ export default function PlayerDetail({ player: p, isMerged = false, isViewer = f
           <div className="section-title" style={{ fontSize: '0.9rem', marginTop: 16 }}>
             📉 Biggest Pots Lost
             <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: '0.78rem', marginLeft: 8 }}>
-              — top {biggestLosses.length} showdown losses by pot size
+              — top {biggestLosses.length} by chips lost
             </span>
           </div>
           <div className="big-pot-list">
@@ -747,7 +750,7 @@ export default function PlayerDetail({ player: p, isMerged = false, isViewer = f
               return (
                 <BigPotCard
                   key={key} kind="loss" rank={i + 1} h={h} isMerged={isMerged}
-                  amountNode={<span className="bp-amount neg">Lost {h.potSize.toLocaleString()}</span>}
+                  amountNode={<span className="bp-amount neg">Lost {(-h.net).toLocaleString()} <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: '0.74rem' }}>pot {h.potSize.toLocaleString()}</span></span>}
                   extraDetails={h.winnerHandName && <span style={{ color: 'var(--muted)', fontSize: '0.72rem', marginLeft: 4 }}>vs {h.winnerHandName}</span>}
                   expanded={expandedKeyHand === key} onToggle={() => toggleKeyHand(key)} log={getActionLog(h)} onReplay={() => openReplay(h)}
                 />
@@ -779,7 +782,7 @@ export default function PlayerDetail({ player: p, isMerged = false, isViewer = f
               return (
                 <BigPotCard
                   key={key} kind={h.won ? 'win' : 'loss'} rank={null} h={h} isMerged={isMerged}
-                  amountNode={<span className={`bp-amount ${h.won ? 'pos' : 'neg'}`}>{h.won ? `Won ${(h.wonAmount ?? h.potSize).toLocaleString()}` : `Lost ${h.potSize.toLocaleString()}`}</span>}
+                  amountNode={<span className={`bp-amount ${h.won ? 'pos' : 'neg'}`}>{h.won ? `Won ${(h.wonAmount ?? h.potSize).toLocaleString()}` : `Lost ${(h.net != null ? -h.net : h.potSize).toLocaleString()}`}</span>}
                   expanded={expandedKeyHand === key} onToggle={() => toggleKeyHand(key)} log={getActionLog(h)} onReplay={() => openReplay(h)}
                 />
               );
@@ -887,7 +890,7 @@ export default function PlayerDetail({ player: p, isMerged = false, isViewer = f
               <div className="bb-header">
                 <span className="bb-num">Hand #{bb.num}{isMerged && bb.sessionDate && <span style={{ color: 'var(--muted)', fontSize: '0.72rem', marginLeft: 6 }}>({fmtDate(bb.sessionDate)})</span>}</span>
                 <span className="bb-severity">{BB_SEVERITY[bb.myHandRank] || ''}</span>
-                <span className="bb-pot neg">Lost {bb.potSize.toLocaleString()}</span>
+                <span className="bb-pot neg">Lost {(bb.net != null ? -bb.net : bb.potSize).toLocaleString()}</span>
                 <span className="bp-chevron">{expanded ? '▾' : '▸'}</span>
               </div>
               <div className="bb-body">
@@ -954,7 +957,7 @@ export default function PlayerDetail({ player: p, isMerged = false, isViewer = f
                 <span className="bb-num">Hand #{c.num}{isMerged && c.sessionDate && <span style={{ color: 'var(--muted)', fontSize: '0.72rem', marginLeft: 6 }}>({fmtDate(c.sessionDate)})</span>}</span>
                 <span className="bb-severity">{CL_SEVERITY[Math.min(c.myHandRank, c.oppHandRank)] || ''}</span>
                 <span className={`bb-pot ${c.won ? 'pos' : 'neg'}`}>
-                  {c.won ? `Won ${c.potSize.toLocaleString()}` : `Lost ${c.potSize.toLocaleString()}`}
+                  {c.won ? `Won ${(c.wonAmount ?? c.potSize).toLocaleString()}` : `Lost ${(c.net != null ? -c.net : c.potSize).toLocaleString()}`}
                 </span>
                 <span className="bp-chevron">{expanded ? '▾' : '▸'}</span>
               </div>

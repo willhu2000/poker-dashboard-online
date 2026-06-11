@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { analyseLog } from './stats.js';
-import { MONEY_SESSION, STAND_UP_SESSION, AF_HAND, BAD_BEAT_HAND, SIDE_POT_HAND, UNCALLED_BET_HAND, LEAD_LOST_HAND } from './testFixtures.js';
+import { MONEY_SESSION, STAND_UP_SESSION, AF_HAND, BAD_BEAT_HAND, SIDE_POT_HAND, UNCALLED_BET_HAND, LEAD_LOST_HAND, DEAD_BLIND_HAND, VIEWER_MUCK_HAND } from './testFixtures.js';
 
 describe('analyseLog — money / standings', () => {
   const { players } = analyseLog(MONEY_SESSION);
@@ -12,10 +12,11 @@ describe('analyseLog — money / standings', () => {
     expect(Carol.buyIns).toBe(2000); // bought in twice
   });
 
-  it('uses the last seen stack for a player still seated at the end', () => {
-    // Alice never quit → effectiveCashOut = last stack snapshot (1245).
-    expect(Alice.effectiveCashOut).toBe(1245);
-    expect(Alice.netChips).toBe(245);
+  it('uses the end-of-final-hand stack for a player still seated at the end', () => {
+    // Alice never quit → effectiveCashOut = last stack snapshot (1245) plus
+    // her final hand's net (+5: BB 10, SB folds, 5 returned, collects 10).
+    expect(Alice.effectiveCashOut).toBe(1250);
+    expect(Alice.netChips).toBe(250);
   });
 
   it('uses the cash-out amount for a player who quit', () => {
@@ -25,9 +26,10 @@ describe('analyseLog — money / standings', () => {
   });
 
   it('treats a rebuy after busting as still seated (cash-out + final stack)', () => {
-    // Carol: quit for 500, rebought, ended with 1300 on the table.
-    expect(Carol.effectiveCashOut).toBe(1800); // 500 cashed + 1300 still on table
-    expect(Carol.netChips).toBe(-200);          // 1800 out − 2000 in
+    // Carol: quit for 500, rebought for 1000, entered the last hand with 1300
+    // and lost her 5 SB in it → 1295 still on the table.
+    expect(Carol.effectiveCashOut).toBe(1795); // 500 cashed + 1295 on the table
+    expect(Carol.netChips).toBe(-205);          // 1795 out − 2000 in
   });
 
   it('counts hands dealt only when the player is in the stacks snapshot', () => {
@@ -64,8 +66,9 @@ describe('analyseLog — newer PokerNow log format', () => {
     const meta = handActionLogs[2].find(en => en.type === 'players');
     expect(meta.sb).toBe('Alice');
     expect(meta.bb).toBe('Bob');
-    const camPosts = handActionLogs[2].filter(en => en.player === 'Cam' && (en.action === 'post-sb' || en.action === 'post-bb'));
-    expect(camPosts.map(en => en.amount)).toEqual([5, 10]);
+    // Missed big blind is live (post-bb); missing small blind is dead money.
+    const camPosts = handActionLogs[2].filter(en => en.player === 'Cam' && en.action?.startsWith('post'));
+    expect(camPosts.map(en => [en.action, en.amount])).toEqual([['post-dead-sb', 5], ['post-bb', 10]]);
   });
 });
 
@@ -144,6 +147,57 @@ describe('analyseLog — uncalled bet returned', () => {
     // Chips actually contested: blinds + the called 30s = 60. Returned 60 must
     // not inflate the pot the winner collected.
     expect(players['Alice'].handsHistory[0].potSize).toBe(60);
+  });
+});
+
+describe('analyseLog — dead missing small blind', () => {
+  const { players, handActionLogs } = analyseLog(DEAD_BLIND_HAND);
+
+  it('keeps the dead blind out of the call price (full call still owed)', () => {
+    // Cam: 5 dead + 10 live bb + 20 to call the raise to 30 = 35 in.
+    expect(players['Cam'].handsHistory[0].net).toBe(-35);
+    expect(players['Alice'].handsHistory[0].net).toBe(45);
+    expect(players['Bob'].handsHistory[0].net).toBe(-10);
+  });
+
+  it('hand nets are zero-sum', () => {
+    const sum = Object.values(players).reduce((s, p) => s + p.handsHistory[0].net, 0);
+    expect(sum).toBe(0);
+  });
+
+  it('logs the dead post as post-dead-sb', () => {
+    const dead = handActionLogs[1].find(en => en.action === 'post-dead-sb');
+    expect(dead).toMatchObject({ player: 'Cam', amount: 5, street: 'preflop' });
+  });
+});
+
+describe('analyseLog — viewer mucked showdown', () => {
+  const { players } = analyseLog(VIEWER_MUCK_HAND, 'Will');
+  const will = players['Will'];
+
+  it('detects a bad beat / cooler from the viewer\'s dealt cards', () => {
+    expect(will.badBeats).toHaveLength(1);
+    expect(will.badBeats[0].myHandName).toBe('Flush');
+    expect(will.badBeats[0].oppHandName).toBe('Four of a Kind');
+    expect(will.coolers).toHaveLength(1);
+    expect(will.coolers[0].won).toBe(false);
+  });
+
+  it('records the actual chips lost (net), not the pot, on key-hand entries', () => {
+    expect(will.badBeats[0].net).toBe(-140);
+    expect(will.coolers[0].net).toBe(-140);
+    const bob = players['Bob'];
+    expect(bob.suckOuts[0].net).toBe(140);
+    expect(bob.coolers[0]).toMatchObject({ net: 140, wonAmount: 280 });
+  });
+
+  it('fills hand names in the history entry even though the viewer mucked', () => {
+    const h = will.handsHistory[0];
+    expect(h.wasShown).toBe(false);
+    expect(h.myHandName).toBe('Flush');
+    expect(h.winnerHandName).toBe('Four of a Kind');
+    expect(h.isBadBeat).toBe(true);
+    expect(h.net).toBe(-140);
   });
 });
 

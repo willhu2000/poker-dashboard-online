@@ -114,7 +114,7 @@ export default function AdvancedStats({ player: p, isMerged = false, getLog, onR
                   const amountNode = h.isSplit
                     ? <span className="bp-amount split">Split {amt}</span>
                     : h.won ? <span className="bp-amount pos">Won {amt}</span>
-                      : <span className="bp-amount neg">Lost {h.potSize.toLocaleString()}</span>;
+                      : <span className="bp-amount neg">Lost {(h.net != null ? -h.net : h.potSize).toLocaleString()}</span>;
                   const oc = (h.opponents || []).find(op => op.name === openOpp);
                   return (
                     <BigPotCard

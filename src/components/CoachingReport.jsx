@@ -766,6 +766,11 @@ function analyzeHandActions(hand, playerName, log = hand.actionLog) {
       pot = Math.max(0, pot - (e.amount || 0));
       contrib[e.player] = Math.max(0, before - (e.amount || 0));
       continue;
+    } else if (e.action === 'post-dead-sb') {
+      // Dead money (missing small blind): joins the pot but doesn't count
+      // toward the poster's street contribution or the price to call.
+      pot += e.amount || 0;
+      continue;
     } else {
       continue;
     }

@@ -196,7 +196,8 @@ export const MONEY_SESSION = makeRows([
   '"Carol @ c" posts a small blind of 5',
   '"Alice @ a" posts a big blind of 10',
   '"Carol @ c" folds',
-  '"Alice @ a" collected 5 from pot',
+  'Uncalled bet of 5 returned to "Alice @ a"',
+  '"Alice @ a" collected 10 from pot',
   '-- ending hand #2 --',
 ]);
 
@@ -344,4 +345,67 @@ export const SIDE_POT_HAND = makeRows([
   'The player "Alice @ a" quits the game with a stack of 450',
   'The player "Bob @ b" quits the game with a stack of 825',
   'The player "Carol @ c" quits the game with a stack of 825',
+]);
+
+// Dead blind chip math: Cam returns from sitting out and posts a live missed
+// big blind (10) plus a DEAD missing small blind (5). The dead 5 goes in the
+// pot but does not count toward calling — facing Alice's raise to 30, Cam owes
+// 20 on top of his live 10. Cam total in: 5 + 10 + 20 = 35.
+export const DEAD_BLIND_HAND = makeRows([
+  'The player "Alice @ a" joined the game with a stack of 1000',
+  'The player "Bob @ b" joined the game with a stack of 1000',
+  'The player "Cam @ c" joined the game with a stack of 1000',
+  '-- starting hand #1 (id: db1)',
+  'Player stacks: #1 "Alice @ a" (1000) | #2 "Bob @ b" (1000) | #3 "Cam @ c" (1000)',
+  '"Cam @ c" is the dealer',
+  '"Alice @ a" posts a small blind of 5',
+  '"Bob @ b" posts a big blind of 10',
+  '"Cam @ c" posts a missing small blind of 5',
+  '"Cam @ c" posts a missed big blind of 10',
+  '"Alice @ a" raises to 30',
+  '"Bob @ b" folds',
+  '"Cam @ c" calls 30',
+  'Flop:  [2♠, 7♥, 9♦]',
+  '"Alice @ a" bets 40',
+  '"Cam @ c" folds',
+  'Uncalled bet of 40 returned to "Alice @ a"',
+  '"Alice @ a" collected 75 from pot',
+  '-- ending hand #1 --',
+  'The player "Alice @ a" quits the game with a stack of 1045',
+  'The player "Bob @ b" quits the game with a stack of 990',
+  'The player "Cam @ c" quits the game with a stack of 965',
+]);
+
+// Viewer mucked showdown: Will (the viewer) calls down with a king-high flush
+// and mucks when Bob shows quads — PokerNow only logs the winner's "shows"
+// line, but the viewer's cards are known from "Your hand is". The loss must
+// still register as a bad beat / cooler for Will.
+export const VIEWER_MUCK_HAND = makeRows([
+  'The player "Will @ w" joined the game with a stack of 1000',
+  'The player "Bob @ b" joined the game with a stack of 1000',
+  '-- starting hand #1 (id: vm1)',
+  'Player stacks: #1 "Will @ w" (1000) | #2 "Bob @ b" (1000)',
+  '"Bob @ b" is the dealer',
+  '"Will @ w" posts a small blind of 5',
+  '"Bob @ b" posts a big blind of 10',
+  'Your hand is K♥, 9♥',
+  '"Will @ w" calls 10',
+  '"Bob @ b" checks',
+  'Flop:  [4♥, 4♦, 4♠]',
+  '"Will @ w" checks',
+  '"Bob @ b" bets 10',
+  '"Will @ w" calls 10',
+  'Turn:  [4♥, 4♦, 4♠, J♥]',
+  '"Will @ w" checks',
+  '"Bob @ b" bets 20',
+  '"Will @ w" calls 20',
+  'River:  [4♥, 4♦, 4♠, J♥, 8♥]',
+  '"Will @ w" checks',
+  '"Bob @ b" bets 100',
+  '"Will @ w" calls 100',
+  '"Bob @ b" shows a 4♣, A♦.',
+  '"Bob @ b" collected 280 from pot',
+  '-- ending hand #1 --',
+  'The player "Will @ w" quits the game with a stack of 860',
+  'The player "Bob @ b" quits the game with a stack of 1140',
 ]);

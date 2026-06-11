@@ -31,6 +31,7 @@ export function BoardCards({ board }) {
 const ACT_TEXT = {
   'post-sb': a => `posts small blind ${a.amount?.toLocaleString() ?? ''}`,
   'post-bb': a => `posts big blind ${a.amount?.toLocaleString() ?? ''}`,
+  'post-dead-sb': a => `posts dead small blind ${a.amount?.toLocaleString() ?? ''}`,
   'fold': () => 'folds',
   'call': a => `calls ${a.amount?.toLocaleString() ?? ''}`,
   'raise': a => `raises to ${a.amount?.toLocaleString() ?? ''}`,

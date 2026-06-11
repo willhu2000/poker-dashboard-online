@@ -74,6 +74,7 @@ export function playActionSound(action) {
       break;
     case 'post-sb':
     case 'post-bb':
+    case 'post-dead-sb':
       tone({ freq: 520, type: 'triangle', dur: 0.07, gain: 0.1 });
       break;
     case 'show':

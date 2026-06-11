@@ -36,6 +36,12 @@ export function buildReplayFrames(log, heroName, heroCards) {
     else if (ev.action === 'show') { if (ev.cards?.length) s.cards = ev.cards.filter(c => c && c.rank); }
     else if (ev.action === 'collect') { s.stack += ev.amount || 0; pot = Math.max(0, pot - (ev.amount || 0)); }
     else if (ev.action === 'return') { s.stack += ev.amount || 0; s.streetBet = Math.max(0, s.streetBet - (ev.amount || 0)); pot = Math.max(0, pot - (ev.amount || 0)); }
+    else if (ev.action === 'post-dead-sb') {
+      // Dead money (missing small blind): into the pot, but it doesn't count
+      // toward the poster's street bet — they still owe the full call amount.
+      const amt = ev.amount || 0;
+      s.stack -= amt; pot += amt;
+    }
     else {
       let delta = 0;
       if (ev.action === 'post-sb' || ev.action === 'post-bb' || ev.action === 'bet') delta = ev.amount || 0;

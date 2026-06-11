@@ -32,13 +32,21 @@ const KEY = 'poker-sessions'; // legacy localStorage key (data is migrated into 
 //       from the inline "(dealer: ...)" hand-start format (restores positional
 //       stats); player ids containing "-" strip correctly; missing/missed
 //       blind posts recorded in the action log.
+//  v12: missing small blinds are dead money — logged as `post-dead-sb` and kept
+//       out of street-bet math (fixes per-hand nets not summing to zero);
+//       still-seated players' netChips include their final hand (lastSeenStack
+//       tracks through hand commits); bad-beat/suck-out/cooler detection and
+//       showdown hand names cover the viewer's mucked showdowns ("Your hand is")
+//       and ignore cards shown by players who folded; badBeats/suckOuts/coolers
+//       entries carry `net` (the player's actual chips won/lost that hand) so
+//       loss displays no longer overstate by showing the whole pot.
 //
 // Sessions that carry a `rawLog` self-heal on load (initSessions re-runs the
 // parser/analyser via migrateRecords), so they NEVER need a manual re-upload
 // again. Only legacy sessions saved without a rawLog can't auto-upgrade — those
 // are what hasOutdatedSessions() flags. (Split fields are still back-filled from
 // stored action logs for them too; see backfillSplitFields.)
-export const STATS_SCHEMA_VERSION = 11;
+export const STATS_SCHEMA_VERSION = 12;
 
 // ── In-memory session cache ───────────────────────────────────────────────────
 // IndexedDB is async, but the rest of the app expects synchronous reads. We keep

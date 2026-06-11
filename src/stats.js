@@ -70,6 +70,8 @@ function chipDeltas(actionLog) {
     if (!(name in net)) { net[name] = 0; streetBet[name] = 0; }
     if (ev.action === 'post-sb' || ev.action === 'post-bb' || ev.action === 'bet') {
       net[name] -= amt; streetBet[name] += amt;
+    } else if (ev.action === 'post-dead-sb') {
+      net[name] -= amt; // dead money: goes in the pot but doesn't count toward calling
     } else if (ev.action === 'call' || ev.action === 'raise') {
       const d = Math.max(0, amt - streetBet[name]);
       net[name] -= d; streetBet[name] += d;
@@ -360,19 +362,32 @@ export function analyseLog(rows, viewerName = null) {
     }
 
     // ── Bad beat detection ────────────────────────────────────────────────────
-    // Requires both players to show cards and a board of ≥3 cards.
-    const shownNames = Object.keys(hand.shownCards);
+    // Uses every hand we know at showdown: players who showed, plus the
+    // viewer's dealt cards when they reached showdown but mucked (PokerNow only
+    // logs the winner's "shows" line, so the viewer's big showdown losses would
+    // otherwise be invisible). A player who folded never reached showdown, so
+    // their cards (even if voluntarily shown) don't count.
+    const foldedSet = new Set(hand.actionLog
+      .filter(ev => ev.type === 'action' && ev.action === 'fold')
+      .map(ev => ev.player));
+    const handNet = chipDeltas(hand.actionLog);
+    const knownCards = { ...hand.shownCards };
+    if (viewerName && !knownCards[viewerName] && !foldedSet.has(viewerName)
+        && hand.viewerCards?.[0] && hand.viewerCards?.[1]) {
+      knownCards[viewerName] = hand.viewerCards;
+    }
+    const shownNames = Object.keys(knownCards).filter(n => !foldedSet.has(n));
     if (shownNames.length >= 2 && hand.board.length >= 3) {
       for (const loserName of shownNames) {
         if (winnerSet.has(loserName)) continue;
-        const lc = hand.shownCards[loserName];
+        const lc = knownCards[loserName];
         if (!lc || !lc[0] || !lc[1]) continue;
 
         const loserEval = bestHand(lc, hand.board);
         if (!loserEval || loserEval.rank < 2) continue; // Two Pair minimum
 
         for (const winnerName of winnerSet) {
-          const wc = hand.shownCards[winnerName];
+          const wc = knownCards[winnerName];
           if (!wc || !wc[0] || !wc[1]) continue;
 
           const winnerEval = bestHand(wc, hand.board);
@@ -388,9 +403,12 @@ export function analyseLog(rows, viewerName = null) {
           // "ahead until the river" from "was never ahead" (closer to a cooler).
           const aheadOn = streetsAhead(lc, wc, hand.board);
 
-          // Record on the loser as a bad beat
+          // Record on the loser as a bad beat. `net` is the loser's actual
+          // chips lost this hand (negative) — pots are mostly other people's
+          // money, so "Lost <pot>" overstated every loss.
           getPlayer(loserName).badBeats.push({
             ...entry,
+            net: handNet[loserName] ?? null,
             c1: lc[0], c2: lc[1],
             myHandName: loserEval.name,
             myHandRank: loserEval.rank,
@@ -404,6 +422,7 @@ export function analyseLog(rows, viewerName = null) {
           const winnerWonAmount = hand.winners.find(w => w.name === winnerName)?.amount ?? potSize;
           getPlayer(winnerName).suckOuts.push({
             ...entry,
+            net: handNet[winnerName] ?? null,
             c1: wc[0], c2: wc[1],
             myHandName: winnerEval.name,
             myHandRank: winnerEval.rank,
@@ -421,6 +440,7 @@ export function analyseLog(rows, viewerName = null) {
             const coolerBase = { num: hand.number, board: hand.board.slice(), potSize };
             getPlayer(loserName).coolers.push({
               ...coolerBase,
+              net: handNet[loserName] ?? null,
               c1: lc[0], c2: lc[1],
               myHandName: loserEval.name, myHandRank: loserEval.rank,
               oppName: winnerName,
@@ -430,6 +450,8 @@ export function analyseLog(rows, viewerName = null) {
             });
             getPlayer(winnerName).coolers.push({
               ...coolerBase,
+              net: handNet[winnerName] ?? null,
+              wonAmount: winnerWonAmount,
               c1: wc[0], c2: wc[1],
               myHandName: winnerEval.name, myHandRank: winnerEval.rank,
               oppName: loserName,
@@ -443,7 +465,6 @@ export function analyseLog(rows, viewerName = null) {
     }
 
     // ── Hand history (all dealt hands, for the expandable table) ──────────────
-    const handNet = chipDeltas(hand.actionLog);
     for (const name of dealtNames) {
       const p = getPlayer(name);
       const shownCards = hand.shownCards[name];
@@ -468,10 +489,11 @@ export function analyseLog(rows, viewerName = null) {
         .filter(([n]) => n !== name)
         .map(([n, cards]) => ({ name: n, c1: cards[0] ?? null, c2: cards[1] ?? null }));
 
-      // Evaluate final hand names for showdown hands
+      // Evaluate final hand names for hands that reached showdown — shown
+      // cards, or the viewer's known cards when they got there but mucked.
       let myHandName = null;
       let winnerHandName = null;
-      if (wasShown && c1 && c2 && hand.board.length >= 3) {
+      if (c1 && c2 && knownCards[name] && hand.board.length >= 3) {
         const myEval = bestHand([c1, c2], hand.board);
         if (myEval) myHandName = myEval.name;
         if (!won) {
@@ -483,6 +505,13 @@ export function analyseLog(rows, viewerName = null) {
             }
           }
         }
+      }
+
+      // Keep lastSeenStack current through the hand: stacks snapshots only
+      // appear at hand *start*, so without this a player still seated when the
+      // log ends would have their final hand's win/loss dropped from netChips.
+      if (hand.players[name]?.stack != null) {
+        p.lastSeenStack = hand.players[name].stack + (handNet[name] ?? 0);
       }
 
       p.handsHistory.push({
@@ -724,14 +753,17 @@ export function analyseLog(rows, viewerName = null) {
 
     // A player returning after sitting out posts "missing"/"missed" blinds.
     // These are extra posts on top of the real blinds, so they must not
-    // overwrite hand.sb/bb — but they do go into the pot.
+    // overwrite hand.sb/bb — but they do go into the pot. The missed BIG blind
+    // is live (counts toward calling, like a normal BB); the missing SMALL
+    // blind is dead money, so it gets its own action type that pot math must
+    // add to the pot without counting toward the poster's street bet.
     const missedBlindMatch = e.match(/^"(.+?)" posts a miss(?:ing|ed) (small|big) blind of (\d+)/);
     if (missedBlindMatch) {
       const name = extractName(missedBlindMatch[1]);
       const amount = parseInt(missedBlindMatch[3], 10);
       currentHand.preflopActions[name] = currentHand.preflopActions[name] || [];
       currentHand.preflopActions[name].push('blind');
-      currentHand.actionLog.push({ type: 'action', street: 'preflop', player: name, action: missedBlindMatch[2] === 'small' ? 'post-sb' : 'post-bb', amount });
+      currentHand.actionLog.push({ type: 'action', street: 'preflop', player: name, action: missedBlindMatch[2] === 'small' ? 'post-dead-sb' : 'post-bb', amount });
       continue;
     }
 
