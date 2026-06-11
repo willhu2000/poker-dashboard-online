@@ -35,6 +35,7 @@ describe('extractName', () => {
   it('strips the "@ tag" suffix', () => {
     expect(extractName('Alice @ aB3xZ')).toBe('Alice');
     expect(extractName('Bob')).toBe('Bob');
+    expect(extractName('Cam @ -CWFnEN9Li')).toBe('Cam'); // ids are url-safe base64, may start with "-"
   });
 });
 

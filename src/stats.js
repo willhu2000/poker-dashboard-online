@@ -170,6 +170,8 @@ export function analyseLog(rows, viewerName = null) {
         lastSeenStack: 0,
         lastBuyInOrder: -1,
         lastQuitOrder: -1,
+        standUpStack: null,  // chips parked by "stand up", consumed by the re-join
+
         // street actions
         streetActions: { preflop: 0, flop: 0, turn: 0, river: 0 },
         // luck proxy: premium hands shown at showdown
@@ -530,6 +532,10 @@ export function analyseLog(rows, viewerName = null) {
       currentHand = emptyHand();
       currentHand.number = parseInt(handStart[1], 10);
       currentHand.id = handStart[2];
+      // Newer PokerNow logs put the dealer inline here instead of emitting a
+      // separate `"X" is the dealer` row. "(dead button)" hands keep dealer null.
+      const inlineDealer = e.match(/\(dealer: "(.+?)"\)/);
+      if (inlineDealer) currentHand.dealer = extractName(inlineDealer[1]);
       continue;
     }
 
@@ -541,10 +547,25 @@ export function analyseLog(rows, viewerName = null) {
     }
 
     // ── Buy-ins / cash-outs (can happen between hands, so check before guard) ──
+    // "stand up" parks the player's chips at the table; the later "sit back" /
+    // "joined the game" re-entry is NOT a new buy-in (only a top-up above the
+    // parked stack would be). Without this, every sit-back inflates buyIns.
+    const standMatch = e.match(/^The player "(.+?)" stand up with the stack of (\d+)/);
+    if (standMatch) {
+      getPlayer(extractName(standMatch[1])).standUpStack = parseInt(standMatch[2], 10);
+      continue;
+    }
+
     const joinMatch = e.match(/^The player "(.+?)" joined the game with a stack of (\d+)/);
     if (joinMatch) {
       const p = getPlayer(extractName(joinMatch[1]));
-      p.buyIns += parseInt(joinMatch[2], 10);
+      const amount = parseInt(joinMatch[2], 10);
+      if (p.standUpStack !== null) {
+        p.buyIns += Math.max(0, amount - p.standUpStack);
+        p.standUpStack = null;
+      } else {
+        p.buyIns += amount;
+      }
       p.lastBuyInOrder = row.order;
       continue;
     }
@@ -554,6 +575,7 @@ export function analyseLog(rows, viewerName = null) {
       const p = getPlayer(extractName(quitMatch[1]));
       p.cashOut += parseInt(quitMatch[2], 10);
       p.lastQuitOrder = row.order;
+      p.standUpStack = null; // quitting while stood up cashes those chips out
       continue;
     }
 
@@ -579,7 +601,9 @@ export function analyseLog(rows, viewerName = null) {
           currentHand.players[name] = { stack };
           currentHand.seats[name] = seat; // physical seat for position ordering
           // Snapshot for end-of-log "still seated" cash-out fallback (see field comment).
-          getPlayer(name).lastSeenStack = stack;
+          const pl = getPlayer(name);
+          pl.lastSeenStack = stack;
+          pl.standUpStack = null; // dealt in again ⇒ any pending stand-up was consumed
         }
       }
       continue;
@@ -695,6 +719,19 @@ export function analyseLog(rows, viewerName = null) {
       currentHand.preflopActions[name].push('blind');
       if (isSmall) currentHand.sb = name; else { currentHand.bb = name; currentHand.bbSize = amount; }
       currentHand.actionLog.push({ type: 'action', street: 'preflop', player: name, action: isSmall ? 'post-sb' : 'post-bb', amount });
+      continue;
+    }
+
+    // A player returning after sitting out posts "missing"/"missed" blinds.
+    // These are extra posts on top of the real blinds, so they must not
+    // overwrite hand.sb/bb — but they do go into the pot.
+    const missedBlindMatch = e.match(/^"(.+?)" posts a miss(?:ing|ed) (small|big) blind of (\d+)/);
+    if (missedBlindMatch) {
+      const name = extractName(missedBlindMatch[1]);
+      const amount = parseInt(missedBlindMatch[3], 10);
+      currentHand.preflopActions[name] = currentHand.preflopActions[name] || [];
+      currentHand.preflopActions[name].push('blind');
+      currentHand.actionLog.push({ type: 'action', street: 'preflop', player: name, action: missedBlindMatch[2] === 'small' ? 'post-sb' : 'post-bb', amount });
       continue;
     }
 

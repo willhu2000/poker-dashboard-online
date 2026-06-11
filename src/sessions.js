@@ -27,13 +27,18 @@ const KEY = 'poker-sessions'; // legacy localStorage key (data is migrated into 
 //  v10: hand-history entries carry exact per-hand `net` chips (rebuy-proof
 //       profit timeline); bad beats / suck-outs record per-street lead
 //       (`aheadOn`/`behindOn`, kicker-aware); dead `potsWon` field dropped.
+//  v11: newer PokerNow log support — "stand up"/"sit back" re-joins no longer
+//       count as fresh buy-ins (fixes wildly wrong net chips); dealer parsed
+//       from the inline "(dealer: ...)" hand-start format (restores positional
+//       stats); player ids containing "-" strip correctly; missing/missed
+//       blind posts recorded in the action log.
 //
 // Sessions that carry a `rawLog` self-heal on load (initSessions re-runs the
 // parser/analyser via migrateRecords), so they NEVER need a manual re-upload
 // again. Only legacy sessions saved without a rawLog can't auto-upgrade — those
 // are what hasOutdatedSessions() flags. (Split fields are still back-filled from
 // stored action logs for them too; see backfillSplitFields.)
-export const STATS_SCHEMA_VERSION = 10;
+export const STATS_SCHEMA_VERSION = 11;
 
 // ── In-memory session cache ───────────────────────────────────────────────────
 // IndexedDB is async, but the rest of the app expects synchronous reads. We keep

@@ -24,8 +24,9 @@ export function parseLog(csvText) {
 
 // Extract player name from "Name @ tag" format
 export function extractName(raw) {
-  // Raw may have surrounding quotes already stripped
-  const m = raw.match(/^(.+?)\s*@\s*\w+$/);
+  // Raw may have surrounding quotes already stripped.
+  // PokerNow ids are url-safe base64, so they can contain "-" (e.g. "-CWFnEN9Li").
+  const m = raw.match(/^(.+?)\s*@\s*[\w-]+$/);
   return m ? m[1].trim() : raw.trim();
 }
 

@@ -126,6 +126,50 @@ export const MULTIWAY_SHOWDOWN = makeRows([
   'The player "Carol @ c" quits the game with a stack of 1020',
 ]);
 
+// Newer PokerNow export format: dealer inline in the hand-start line (no
+// separate `is the dealer` row), player ids containing "-", stand up /
+// sit back / re-join sequences, and missing/missed blind posts.
+// Cam stands up at 485 and re-joins (no new buy-in), then re-joins after a
+// 200-chip top-up while away (only the 200 counts as a buy-in).
+export const STAND_UP_SESSION = makeRows([
+  'The player "Alice @ a" joined the game with a stack of 500.',
+  'The player "Bob @ b" joined the game with a stack of 500.',
+  'The player "Cam @ -c1" joined the game with a stack of 500.',
+  `-- starting hand #1 (id: z1)  No Limit Texas Hold'em (dealer: "Cam @ -c1") --`,
+  'Player stacks: #1 "Alice @ a" (500) | #2 "Bob @ b" (500) | #3 "Cam @ -c1" (500)',
+  '"Alice @ a" posts a small blind of 5',
+  '"Bob @ b" posts a big blind of 10',
+  '"Cam @ -c1" folds',
+  '"Alice @ a" folds',
+  '"Bob @ b" collected 15 from pot',
+  '-- ending hand #1 --',
+  `-- starting hand #2 (id: z2)  No Limit Texas Hold'em (dealer: "Cam @ -c1") --`,
+  'Player stacks: #1 "Alice @ a" (495) | #2 "Bob @ b" (505) | #3 "Cam @ -c1" (500)',
+  '"Alice @ a" posts a small blind of 5',
+  '"Bob @ b" posts a big blind of 10',
+  '"Cam @ -c1" posts a missing small blind of 5',
+  '"Cam @ -c1" posts a missed big blind of 10',
+  '"Alice @ a" folds',
+  '"Cam @ -c1" checks',
+  '"Bob @ b" checks',
+  'Flop:  [2♠, 7♥, 9♦]',
+  '"Cam @ -c1" checks',
+  '"Bob @ b" bets 10',
+  '"Cam @ -c1" folds',
+  'Uncalled bet of 10 returned to "Bob @ b"',
+  '"Bob @ b" collected 30 from pot',
+  '-- ending hand #2 --',
+  'The player "Cam @ -c1" stand up with the stack of 485.',
+  'The player "Cam @ -c1" sit back with the stack of 485.',
+  'The player "Cam @ -c1" joined the game with a stack of 485.',
+  'The player "Cam @ -c1" stand up with the stack of 485.',
+  'The player "Cam @ -c1" sit back with the stack of 685.',
+  'The player "Cam @ -c1" joined the game with a stack of 685.',
+  'The player "Cam @ -c1" quits the game with a stack of 685.',
+  'The player "Alice @ a" quits the game with a stack of 490.',
+  'The player "Bob @ b" quits the game with a stack of 525.',
+]);
+
 // Money/standings: Alice stays to the end (still-seated → use last stack), Bob
 // cashes out down, Carol rebuys after busting (buy-ins sum; rebuy is after the
 // quit so she counts as still-seated).

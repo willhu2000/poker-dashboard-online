@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { analyseLog } from './stats.js';
-import { MONEY_SESSION, AF_HAND, BAD_BEAT_HAND, SIDE_POT_HAND, UNCALLED_BET_HAND, LEAD_LOST_HAND } from './testFixtures.js';
+import { MONEY_SESSION, STAND_UP_SESSION, AF_HAND, BAD_BEAT_HAND, SIDE_POT_HAND, UNCALLED_BET_HAND, LEAD_LOST_HAND } from './testFixtures.js';
 
 describe('analyseLog — money / standings', () => {
   const { players } = analyseLog(MONEY_SESSION);
@@ -34,6 +34,38 @@ describe('analyseLog — money / standings', () => {
     expect(Alice.handsDealt).toBe(2);
     expect(Bob.handsDealt).toBe(1); // sat out hand #2
     expect(Carol.handsDealt).toBe(2);
+  });
+});
+
+describe('analyseLog — newer PokerNow log format', () => {
+  const { players, handActionLogs } = analyseLog(STAND_UP_SESSION);
+  const { Alice, Bob, Cam } = players;
+
+  it('strips "@ tag" from ids containing a hyphen', () => {
+    expect(Cam).toBeDefined();
+    expect(players['Cam @ -c1']).toBeUndefined();
+  });
+
+  it('does not count stand-up/sit-back re-joins as buy-ins', () => {
+    expect(Cam.buyIns).toBe(700);   // 500 initial + 200 top-up while standing
+    expect(Cam.cashOut).toBe(685);
+    expect(Cam.netChips).toBe(-15);
+    expect(Alice.netChips).toBe(-10);
+    expect(Bob.netChips).toBe(25);
+  });
+
+  it('parses the dealer from the inline "(dealer: ...)" hand-start format', () => {
+    expect(Cam.posStats.BTN.h).toBe(2);
+    expect(Alice.posStats.SB.h).toBe(2);
+    expect(Bob.posStats.BB.h).toBe(2);
+  });
+
+  it('logs missing/missed blind posts without overwriting the real blinds', () => {
+    const meta = handActionLogs[2].find(en => en.type === 'players');
+    expect(meta.sb).toBe('Alice');
+    expect(meta.bb).toBe('Bob');
+    const camPosts = handActionLogs[2].filter(en => en.player === 'Cam' && (en.action === 'post-sb' || en.action === 'post-bb'));
+    expect(camPosts.map(en => en.amount)).toEqual([5, 10]);
   });
 });
 
